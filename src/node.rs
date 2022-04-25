@@ -11,6 +11,14 @@ pub trait Node<V> {
     fn drain(self) -> Vec<(u8, V)>;
 }
 
+pub trait NodeStore<V> {
+    fn len(&self) -> usize;
+    fn index_of(&self, key: u8) -> Option<usize>;
+    fn get(&self, i: usize) -> Option<&V>;
+    fn get_mut(&mut self, i: usize) -> Option<&mut V>;
+    fn remove(&self, i: usize) -> Option<V>;
+}
+
 pub struct FlatNode<V, const N: usize> {
     prefix: Vec<u8>,
     len: usize,
@@ -29,19 +37,19 @@ impl<V, const N: usize> Drop for FlatNode<V, N> {
     }
 }
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[target_feature(enable = "sse2")]
-unsafe fn key_index_sse(key: u8, keys_vec: __m128i, vec_len: usize) -> Option<usize> {
-    debug_assert!(vec_len <= 16);
-    let search_key_vec = _mm_set1_epi8(key as i8);
-    let cmp_res = _mm_cmpeq_epi8(keys_vec, search_key_vec);
-    let zeroes_from_start = _tzcnt_u32(_mm_movemask_epi8(cmp_res) as u32) as usize;
-    if zeroes_from_start >= vec_len {
-        None
-    } else {
-        Some(zeroes_from_start)
-    }
-}
+// #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+// #[target_feature(enable = "sse2")]
+// unsafe fn key_index_sse(key: u8, keys_vec: __m128i, vec_len: usize) -> Option<usize> {
+//     debug_assert!(vec_len <= 16);
+//     let search_key_vec = _mm_set1_epi8(key as i8);
+//     let cmp_res = _mm_cmpeq_epi8(keys_vec, search_key_vec);
+//     let zeroes_from_start = _tzcnt_u32(_mm_movemask_epi8(cmp_res) as u32) as usize;
+//     if zeroes_from_start >= vec_len {
+//         None
+//     } else {
+//         Some(zeroes_from_start)
+//     }
+// }
 
 impl<V, const N: usize> Node<V> for FlatNode<V, N> {
     fn insert(&mut self, key: u8, value: V) -> Option<InsertError<V>> {
@@ -92,43 +100,42 @@ impl<V, const N: usize> Node<V> for FlatNode<V, N> {
 
 impl<V, const N: usize> FlatNode<V, N> {
     pub fn new(prefix: &[u8]) -> Self {
-        let vals: MaybeUninit<[MaybeUninit<V>; N]> = MaybeUninit::uninit();
         Self {
             prefix: prefix.to_vec(),
             len: 0,
             keys: [0; N],
-            values: unsafe { vals.assume_init() },
+            values: array_init::array_init(|_| MaybeUninit::uninit()),
         }
     }
 
     fn get_key_index(&self, key: u8) -> Option<usize> {
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        unsafe {
-            if N == 4 {
-                let keys = _mm_set_epi8(
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    self.keys[3] as i8,
-                    self.keys[2] as i8,
-                    self.keys[1] as i8,
-                    self.keys[0] as i8,
-                );
-                return key_index_sse(key, keys, self.len);
-            } else if N == 16 {
-                let keys = _mm_loadu_si128(self.keys.as_ptr() as *const __m128i);
-                return key_index_sse(key, keys, self.len);
-            }
-        }
+        // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        // unsafe {
+        //     if N == 4 {
+        //         let keys = _mm_set_epi8(
+        //             0,
+        //             0,
+        //             0,
+        //             0,
+        //             0,
+        //             0,
+        //             0,
+        //             0,
+        //             0,
+        //             0,
+        //             0,
+        //             0,
+        //             self.keys[3] as i8,
+        //             self.keys[2] as i8,
+        //             self.keys[1] as i8,
+        //             self.keys[0] as i8,
+        //         );
+        //         return key_index_sse(key, keys, self.len);
+        //     } else if N == 16 {
+        //         let keys = _mm_loadu_si128(self.keys.as_ptr() as *const __m128i);
+        //         return key_index_sse(key, keys, self.len);
+        //     }
+        // }
 
         self.keys[..self.len]
             .iter()
@@ -225,21 +232,21 @@ impl<V> Node<V> for Node48<V> {
             return Some(val);
         }
 
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        unsafe {
-            for offset in (0..256).step_by(16) {
-                let keys = _mm_loadu_si128(self.keys[offset..].as_ptr() as *const __m128i);
-                if let Some(i) = key_index_sse(self.len as u8, keys, 16).map(|i| i + offset) {
-                    // move value of key which points to last array cell of values
-                    self.keys[i] = val_idx as u8 + 1;
-                    self.values[val_idx] =
-                        mem::replace(&mut self.values[self.len - 1], MaybeUninit::uninit());
-                    break;
-                }
-            }
-            self.len -= 1;
-            return Some(val);
-        };
+        // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        // unsafe {
+        //     for offset in (0..256).step_by(16) {
+        //         let keys = _mm_loadu_si128(self.keys[offset..].as_ptr() as *const __m128i);
+        //         if let Some(i) = key_index_sse(self.len as u8, keys, 16).map(|i| i + offset) {
+        //             // move value of key which points to last array cell of values
+        //             self.keys[i] = val_idx as u8 + 1;
+        //             self.values[val_idx] =
+        //                 mem::replace(&mut self.values[self.len - 1], MaybeUninit::uninit());
+        //             break;
+        //         }
+        //     }
+        //     self.len -= 1;
+        //     return Some(val);
+        // };
 
         for i in 0..self.keys.len() {
             // find key which uses last cell inside values array
@@ -283,12 +290,11 @@ impl<V> Node<V> for Node48<V> {
 
 impl<V> Node48<V> {
     fn new(prefix: &[u8]) -> Self {
-        let vals: MaybeUninit<[MaybeUninit<V>; 48]> = MaybeUninit::uninit();
         Self {
             prefix: prefix.to_vec(),
             len: 0,
             keys: [0; 256],
-            values: unsafe { vals.assume_init() },
+            values: array_init::array_init(|_| MaybeUninit::uninit()),
         }
     }
 
@@ -372,19 +378,11 @@ impl<V> Node<V> for Node256<V> {
 }
 
 impl<V> Node256<V> {
-    #[allow(clippy::uninit_assumed_init)]
     fn new(prefix: &[u8]) -> Self {
-        let mut values: [Option<V>; 256] =
-            unsafe { MaybeUninit::<[Option<V>; 256]>::uninit().assume_init() };
-        for v in &mut values {
-            unsafe {
-                ptr::write(v, None);
-            }
-        }
         Self {
             prefix: prefix.to_vec(),
             len: 0,
-            values,
+            values: array_init::array_init(|_| None),
         }
     }
 
