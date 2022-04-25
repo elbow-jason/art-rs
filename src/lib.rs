@@ -40,10 +40,10 @@ pub use keys::*;
 use node::*;
 // use std::arch::x86_64;
 use std::cmp::Ordering;
-use std::marker::PhantomData;
+
 use std::ops::RangeBounds;
 use std::option::Option::Some;
-use std::rc::Rc;
+
 use std::{cmp, mem, ptr};
 
 /// Adaptive Radix Tree.  
@@ -65,7 +65,7 @@ where
 {
     root: Option<TypedNode<K, V>>,
     // to make type !Send and !Sync
-    _phantom: PhantomData<Rc<K>>,
+    // _phantom: PhantomData<Rc<K>>,
 }
 
 impl<K: Key, V> Default for Art<K, V> {
@@ -79,7 +79,7 @@ impl<'a, K: Key, V> Art<K, V> {
     pub fn new() -> Self {
         Self {
             root: None,
-            _phantom: PhantomData {},
+            // _phantom: PhantomData {},
         }
     }
 
