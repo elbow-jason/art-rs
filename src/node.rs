@@ -11,13 +11,13 @@ pub trait Node<V> {
     fn drain(self) -> Vec<(u8, V)>;
 }
 
-pub trait NodeStore<V> {
-    fn len(&self) -> usize;
-    fn index_of(&self, key: u8) -> Option<usize>;
-    fn get(&self, i: usize) -> Option<&V>;
-    fn get_mut(&mut self, i: usize) -> Option<&mut V>;
-    fn remove(&self, i: usize) -> Option<V>;
-}
+// pub trait NodeStore<V> {
+//     fn len(&self) -> usize;
+//     fn index_of(&self, key: u8) -> Option<usize>;
+//     fn get(&self, i: usize) -> Option<&V>;
+//     fn get_mut(&mut self, i: usize) -> Option<&mut V>;
+//     fn remove(&self, i: usize) -> Option<V>;
+// }
 
 pub struct FlatNode<V, const N: usize> {
     prefix: Vec<u8>,
@@ -54,27 +54,33 @@ impl<V, const N: usize> Drop for FlatNode<V, N> {
 impl<V, const N: usize> Node<V> for FlatNode<V, N> {
     fn insert(&mut self, key: u8, value: V) -> Option<InsertError<V>> {
         if self.len >= N {
-            Some(InsertError::Overflow(value))
-        } else if self.get_mut(key).is_none() {
-            self.keys[self.len] = key;
-            self.values[self.len] = MaybeUninit::new(value);
-            self.len += 1;
-            None
-        } else {
-            Some(InsertError::DuplicateKey)
+            return Some(InsertError::Overflow(value));
+        }
+
+        match self.get_mut(key) {
+            Some(_) => Some(InsertError::DuplicateKey),
+            None => {
+                self.keys[self.len] = key;
+                self.values[self.len] = MaybeUninit::new(value);
+                self.len += 1;
+                None
+            }
         }
     }
 
     fn remove(&mut self, key: u8) -> Option<V> {
-        if let Some(i) = self.get_key_index(key) {
-            let val =
-                unsafe { mem::replace(&mut self.values[i], MaybeUninit::uninit()).assume_init() };
-            self.keys[i] = self.keys[self.len - 1];
-            self.values[i] = mem::replace(&mut self.values[self.len - 1], MaybeUninit::uninit());
-            self.len -= 1;
-            Some(val)
-        } else {
-            None
+        match self.get_key_index(key) {
+            None => None,
+            Some(i) => {
+                let val = unsafe {
+                    mem::replace(&mut self.values[i], MaybeUninit::uninit()).assume_init()
+                };
+                self.keys[i] = self.keys[self.len - 1];
+                self.values[i] =
+                    mem::replace(&mut self.values[self.len - 1], MaybeUninit::uninit());
+                self.len -= 1;
+                Some(val)
+            }
         }
     }
 
