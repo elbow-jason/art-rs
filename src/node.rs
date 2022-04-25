@@ -1,8 +1,6 @@
 // use std::arch::x86_64::*;
 use std::cmp::Ordering;
-use std::mem::MaybeUninit;
-use std::ptr::slice_from_raw_parts;
-use std::{mem, ptr};
+use std::mem;
 
 pub trait Node<V> {
     fn insert(&mut self, key: u8, value: V) -> Option<InsertError<V>>;
@@ -11,30 +9,11 @@ pub trait Node<V> {
     fn drain(self) -> Vec<(u8, V)>;
 }
 
-// pub trait NodeStore<V> {
-//     fn len(&self) -> usize;
-//     fn index_of(&self, key: u8) -> Option<usize>;
-//     fn get(&self, i: usize) -> Option<&V>;
-//     fn get_mut(&mut self, i: usize) -> Option<&mut V>;
-//     fn remove(&self, i: usize) -> Option<V>;
-// }
-
 pub struct FlatNode<V, const N: usize> {
     prefix: Vec<u8>,
     len: usize,
     keys: [u8; N],
-    values: [MaybeUninit<V>; N],
-}
-
-impl<V, const N: usize> Drop for FlatNode<V, N> {
-    fn drop(&mut self) {
-        for value in &self.values[..self.len] {
-            unsafe {
-                ptr::read(value.as_ptr());
-            }
-        }
-        self.len = 0;
-    }
+    values: [Option<V>; N],
 }
 
 // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -53,16 +32,16 @@ impl<V, const N: usize> Drop for FlatNode<V, N> {
 
 impl<V, const N: usize> FlatNode<V, N> {
     fn remove_index(&mut self, i: usize) -> V {
-        let val = unsafe { mem::replace(&mut self.values[i], MaybeUninit::uninit()).assume_init() };
+        let val = mem::replace(&mut self.values[i], None).unwrap();
         self.keys[i] = self.keys[self.len - 1];
-        self.values[i] = mem::replace(&mut self.values[self.len - 1], MaybeUninit::uninit());
+        self.values[i] = mem::replace(&mut self.values[self.len - 1], None);
         self.len -= 1;
         val
     }
 
     fn unchecked_push(&mut self, key: u8, val: V) {
         self.keys[self.len] = key;
-        self.values[self.len] = MaybeUninit::new(val);
+        self.values[self.len] = Some(val);
         self.len += 1;
     }
 }
@@ -90,17 +69,20 @@ impl<V, const N: usize> Node<V> for FlatNode<V, N> {
     }
 
     fn get_mut(&mut self, key: u8) -> Option<&mut V> {
-        self.get_key_index(key)
-            .map(|i| unsafe { &mut *self.values[i].as_mut_ptr() })
+        match self
+            .get_key_index(key)
+            .and_then(move |i| self.values.get_mut(i))
+        {
+            Some(Some(v)) => Some(v),
+            _ => None,
+        }
     }
 
     fn drain(mut self) -> Vec<(u8, V)> {
         let mut res = Vec::with_capacity(self.len);
         for i in 0..self.len {
-            unsafe {
-                let value = mem::replace(&mut self.values[i], MaybeUninit::uninit()).assume_init();
-                res.push((self.keys[i], value));
-            }
+            let value = mem::replace(&mut self.values[i], None).unwrap();
+            res.push((self.keys[i], value));
         }
 
         // emulate that all values was moved out from node before drop
@@ -115,7 +97,7 @@ impl<V, const N: usize> FlatNode<V, N> {
             prefix: prefix.to_vec(),
             len: 0,
             keys: [0; N],
-            values: array_init::array_init(|_| MaybeUninit::uninit()),
+            values: array_init::array_init(|_| None),
         }
     }
 
@@ -182,7 +164,7 @@ impl<V, const N: usize> FlatNode<V, N> {
         let mut kvs: Vec<(u8, &V)> = self.keys[..self.len]
             .iter()
             .zip(self.values[..self.len].iter())
-            .map(|(k, v)| (*k, unsafe { &*v.as_ptr() }))
+            .map(|(k, v)| (*k, v.as_ref().unwrap()))
             .collect();
         kvs.sort_unstable_by_key(|(k, _)| *k);
         kvs.into_iter().map(|(_, v)| v)
@@ -237,21 +219,20 @@ impl<V> Node<V> for Node48<V> {
             return Some(val);
         }
 
-        // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        // unsafe {
-        //     for offset in (0..256).step_by(16) {
-        //         let keys = _mm_loadu_si128(self.keys[offset..].as_ptr() as *const __m128i);
-        //         if let Some(i) = key_index_sse(self.len as u8, keys, 16).map(|i| i + offset) {
-        //             // move value of key which points to last array cell of values
-        //             self.keys[i] = val_idx as u8 + 1;
-        //             self.values[val_idx] =
-        //                 mem::replace(&mut self.values[self.len - 1], MaybeUninit::uninit());
-        //             break;
-        //         }
-        //     }
-        //     self.len -= 1;
-        //     return Some(val);
-        // };
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        unsafe {
+            for offset in (0..256).step_by(16) {
+                let keys = _mm_loadu_si128(self.keys[offset..].as_ptr() as *const __m128i);
+                if let Some(i) = key_index_sse(self.len as u8, keys, 16).map(|i| i + offset) {
+                    // move value of key which points to last array cell of values
+                    self.keys[i] = val_idx as u8 + 1;
+                    self.values[val_idx] = mem::replace(&mut self.values[self.len - 1], None);
+                    break;
+                }
+            }
+            self.len -= 1;
+            return Some(val);
+        };
 
         for i in 0..self.keys.len() {
             // find key which uses last cell inside values array
@@ -324,7 +305,7 @@ impl<V> Node48<V> {
     }
 
     fn iter(&self) -> impl DoubleEndedIterator<Item = &V> {
-        let slice = unsafe { &*slice_from_raw_parts(self.values.as_ptr(), self.values.len()) };
+        let slice = &self.values[..];
         self.keys.iter().filter_map(move |k| {
             if *k > 0 {
                 let val_index = *k as usize - 1;
@@ -600,8 +581,8 @@ pub enum InsertError<V> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::node::{FlatNode, InsertError, Node, Node256, Node48};
-
     #[test]
     fn flat_node() {
         node_test(FlatNode::<usize, 4>::new(&[]), 4);
@@ -710,5 +691,11 @@ mod tests {
             assert!(matches!(node.remove(i as u8), Some(v) if v == i));
         }
         assert!(matches!(node.remove((size + 1) as u8), None));
+    }
+
+    #[test]
+    fn sizeof_zero_sized_k_v_typenode() {
+        let size = std::mem::size_of::<TypedNode<u8, ()>>();
+        assert_eq!(size, 24);
     }
 }
