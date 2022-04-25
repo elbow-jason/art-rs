@@ -1,8 +1,7 @@
 use crate::node::*;
 use crate::{Key, Leaf, TypedNode};
 use std::collections::{BinaryHeap, VecDeque};
-use std::ops::Bound;
-use std::ops::RangeBounds;
+use std::ops::{Bound, RangeBounds};
 
 pub struct Scanner<'a, K, V, R> {
     forward: ScannerState<'a, K, V>,
@@ -24,7 +23,7 @@ struct BackwardScannerState<'a, K, V> {
 
 impl<'a, K, V, R> Scanner<'a, K, V, R>
 where
-    K: Ord,
+    K: Key + Ord,
     R: RangeBounds<K>,
 {
     pub(crate) fn empty(range: R) -> Self {
@@ -137,7 +136,7 @@ where
     }
 }
 
-impl<'a, K: 'a + Key + Ord, V, R: RangeBounds<K>> DoubleEndedIterator for Scanner<'a, K, V, R> {
+impl<'a, K: Key + Ord, V, R: RangeBounds<K>> DoubleEndedIterator for Scanner<'a, K, V, R> {
     fn next_back(&mut self) -> Option<Self::Item> {
         'outer: while let Some(node) = self.backward.interims.last_mut() {
             let mut e = node.next_back();

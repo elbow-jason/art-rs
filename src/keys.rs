@@ -2,10 +2,43 @@ use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::mem;
 
+pub enum KeyBuffer<'a> {
+    L1([u8; 1]),
+    L2([u8; 2]),
+    L4([u8; 4]),
+    L8([u8; 8]),
+    L16([u8; 16]),
+    Vec(Vec<u8>),
+    Slice(&'a [u8]),
+}
+
+impl<'a> KeyBuffer<'a> {
+    pub fn as_slice(&'a self) -> &'a [u8] {
+        match self {
+            KeyBuffer::L1(v) => &v[..],
+            KeyBuffer::L2(v) => &v[..],
+            KeyBuffer::L4(v) => &v[..],
+            KeyBuffer::L8(v) => &v[..],
+            KeyBuffer::L16(v) => &v[..],
+            KeyBuffer::Vec(v) => &v[..],
+            KeyBuffer::Slice(v) => &v[..],
+        }
+    }
+}
+
+// impl Deref for KeyBuffer {
+//     type Target = [u8];
+
+//     fn deref(&self) -> &[u8] {
+//         self.as_slice()
+//     }
+// }
+
 /// Trait represent [Art](crate::Art) key.
 /// Trait define method which convert key into byte comparable sequence. This sequence will be
 /// used to order keys inside tree.
-pub trait Key {
+pub trait Key: Clone {
+    // type Bytes: AsRef<[u8]>;
     /// Converts key to byte comparable sequence. This sequence used to represent key inside
     /// [Art] tree.
     ///
@@ -14,7 +47,7 @@ pub trait Key {
     /// key type must have same ordering guarantees as returned byte sequence.  
     /// For instance, if `"abc" < "def"`, then `"abc".to_bytes() < "def".to_bytes()`.
     /// Violation of this rule is **undefined behaviour** and can cause `panic`.
-    fn to_bytes(&self) -> Vec<u8>;
+    fn to_bytes<'a>(&'a self) -> KeyBuffer<'a>;
 }
 
 /// Implementation of [Key] which wraps bytes slice. It can be used to represent strings as
@@ -33,15 +66,15 @@ impl ByteString {
     }
 }
 
-impl Borrow<[u8]> for ByteString {
-    fn borrow(&self) -> &[u8] {
-        &self.bytes
-    }
-}
+// impl Borrow<[u8]> for ByteString {
+//     fn borrow(&self) -> &[u8] {
+//         &self.bytes
+//     }
+// }
 
 impl Key for ByteString {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.bytes.clone()
+    fn to_bytes(&self) -> KeyBuffer {
+        KeyBuffer::Slice(&self.bytes[..])
     }
 }
 
@@ -53,44 +86,27 @@ impl PartialEq for ByteString {
     }
 }
 
-impl Key for usize {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.to_be_bytes().to_vec()
-    }
+macro_rules! impl_key {
+    ($t:ty, $s:ident) => {
+        impl Key for $t {
+            fn to_bytes(&self) -> KeyBuffer {
+                KeyBuffer::$s(self.to_be_bytes())
+            }
+        }
+    };
 }
 
-impl Key for u8 {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.to_be_bytes().to_vec()
-    }
-}
+// const SIZEOF_USIZE: usize = std::mem::size_of::<usize>();
 
-impl Key for u16 {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.to_be_bytes().to_vec()
-    }
-}
-
-impl Key for u32 {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.to_be_bytes().to_vec()
-    }
-}
-
-impl Key for u64 {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.to_be_bytes().to_vec()
-    }
-}
-
-impl Key for u128 {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.to_be_bytes().to_vec()
-    }
-}
+impl_key!(u128, L16);
+impl_key!(usize, L8);
+impl_key!(u64, L8);
+impl_key!(u32, L4);
+impl_key!(u16, L2);
+impl_key!(u8, L1);
 
 impl Key for i8 {
-    fn to_bytes(&self) -> Vec<u8> {
+    fn to_bytes(&self) -> KeyBuffer {
         // flip upper bit of signed value to get comparable byte sequence:
         // -128 => 0
         // -127 => 1
@@ -108,47 +124,47 @@ impl Key for i8 {
         // v = 129 (0b1000_0001)
         // j = 0b0000_0000 | (0b1000_0001 & 0b0111_1111) = 0b0000_0000 | 0b0000_0001 = 0b0000_0001 = 1
         let j = i | (v & 0x7F);
-        j.to_be_bytes().to_vec()
+        KeyBuffer::L1(j.to_be_bytes())
     }
 }
 
 impl Key for i16 {
-    fn to_bytes(&self) -> Vec<u8> {
+    fn to_bytes(&self) -> KeyBuffer {
         let v: u16 = unsafe { mem::transmute(*self) };
         let xor = 1 << 15;
         let i = (v ^ xor) & xor;
         let j = i | (v & (u16::MAX >> 1));
-        j.to_be_bytes().to_vec()
+        KeyBuffer::L2(j.to_be_bytes())
     }
 }
 
 impl Key for i32 {
-    fn to_bytes(&self) -> Vec<u8> {
+    fn to_bytes(&self) -> KeyBuffer {
         let v: u32 = unsafe { mem::transmute(*self) };
         let xor = 1 << 31;
         let i = (v ^ xor) & xor;
         let j = i | (v & (u32::MAX >> 1));
-        j.to_be_bytes().to_vec()
+        KeyBuffer::L4(j.to_be_bytes())
     }
 }
 
 impl Key for i64 {
-    fn to_bytes(&self) -> Vec<u8> {
+    fn to_bytes(&self) -> KeyBuffer {
         let v: u64 = unsafe { mem::transmute(*self) };
         let xor = 1 << 63;
         let i = (v ^ xor) & xor;
         let j = i | (v & (u64::MAX >> 1));
-        j.to_be_bytes().to_vec()
+        KeyBuffer::L8(j.to_be_bytes())
     }
 }
 
 impl Key for i128 {
-    fn to_bytes(&self) -> Vec<u8> {
+    fn to_bytes(&self) -> KeyBuffer {
         let v: u128 = unsafe { mem::transmute(*self) };
         let xor = 1 << 127;
         let i = (v ^ xor) & xor;
         let j = i | (v & (u128::MAX >> 1));
-        j.to_be_bytes().to_vec()
+        KeyBuffer::L16(j.to_be_bytes())
     }
 }
 
@@ -243,14 +259,14 @@ impl From<f64> for Float64 {
 }
 
 impl Key for Float32 {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.key.to_vec()
+    fn to_bytes(&self) -> KeyBuffer {
+        KeyBuffer::L4(self.key)
     }
 }
 
 impl Key for Float64 {
-    fn to_bytes(&self) -> Vec<u8> {
-        self.key.to_vec()
+    fn to_bytes(&self) -> KeyBuffer {
+        KeyBuffer::L8(self.key)
     }
 }
 
@@ -302,8 +318,11 @@ impl KeyBuilder {
         }
     }
 
-    pub fn append(mut self, key_part: impl Key) -> Self {
-        self.key.bytes.append(&mut key_part.to_bytes());
+    pub fn append<K: Key>(mut self, key_part: K) -> Self {
+        for b in key_part.to_bytes().as_slice() {
+            self.key.bytes.push(*b);
+        }
+
         self
     }
 
