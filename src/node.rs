@@ -187,15 +187,15 @@ pub struct Node48<V> {
     prefix: Vec<u8>,
     len: usize,
     keys: [u8; 256],
-    values: [MaybeUninit<V>; 48],
+    values: [Option<V>; 48],
 }
 
 impl<V> Drop for Node48<V> {
     fn drop(&mut self) {
-        for value in &self.values[..self.len] {
-            unsafe {
-                ptr::read(value.as_ptr());
-            }
+        for value in &mut self.values[..self.len].iter_mut() {
+            let mut owned: Option<V> = None;
+            std::mem::swap(value, &mut owned);
+            let _: V = owned.unwrap();
         }
         self.len = 0;
     }
@@ -211,7 +211,7 @@ impl<V> Node<V> for Node48<V> {
             return Some(InsertError::Overflow(value));
         }
 
-        self.values[self.len as usize] = MaybeUninit::new(value);
+        self.values[self.len as usize] = Some(value);
         self.keys[i] = self.len as u8 + 1;
         self.len += 1;
         None
@@ -223,8 +223,7 @@ impl<V> Node<V> for Node48<V> {
             return None;
         }
         let val_idx = self.keys[key_idx] as usize - 1;
-        let val =
-            unsafe { mem::replace(&mut self.values[val_idx], MaybeUninit::uninit()).assume_init() };
+        let val = mem::replace(&mut self.values[val_idx], None).unwrap();
         self.keys[key_idx] = 0;
 
         if self.len == 1 {
@@ -253,8 +252,7 @@ impl<V> Node<V> for Node48<V> {
             if self.keys[i] == self.len as u8 {
                 // move value of key which points to last array cell
                 self.keys[i] = val_idx as u8 + 1;
-                self.values[val_idx] =
-                    mem::replace(&mut self.values[self.len - 1], MaybeUninit::uninit());
+                self.values[val_idx] = mem::replace(&mut self.values[self.len - 1], None);
                 break;
             }
         }
@@ -265,9 +263,10 @@ impl<V> Node<V> for Node48<V> {
     fn get_mut(&mut self, key: u8) -> Option<&mut V> {
         let i = self.keys[key as usize] as usize;
         if i > 0 {
-            unsafe {
-                return Some(&mut *self.values[i - 1].as_mut_ptr());
-            }
+            return match self.values.get_mut(i - 1).unwrap() {
+                Some(v) => Some(v),
+                None => None,
+            };
         }
         None
     }
@@ -276,9 +275,7 @@ impl<V> Node<V> for Node48<V> {
         let mut res = Vec::with_capacity(self.len);
         for (k, v) in self.keys.iter().enumerate().filter(|(_, v)| **v > 0) {
             let val_idx = *v as usize;
-            let value = unsafe {
-                mem::replace(&mut self.values[val_idx - 1], MaybeUninit::uninit()).assume_init()
-            };
+            let value = mem::replace(&mut self.values[val_idx - 1], None).unwrap();
             res.push((k as u8, value));
         }
 
@@ -294,7 +291,7 @@ impl<V> Node48<V> {
             prefix: prefix.to_vec(),
             len: 0,
             keys: [0; 256],
-            values: array_init::array_init(|_| MaybeUninit::uninit()),
+            values: array_init::array_init(|_| None),
         }
     }
 
@@ -302,7 +299,7 @@ impl<V> Node48<V> {
         debug_assert!(node.len <= 48);
         let mut new_node = Node48::new(&node.prefix);
         for (k, v) in node.drain() {
-            new_node.values[new_node.len as usize] = MaybeUninit::new(v);
+            new_node.values[new_node.len as usize] = Some(v);
             new_node.keys[k as usize] = new_node.len as u8 + 1;
             new_node.len += 1;
         }
@@ -313,7 +310,7 @@ impl<V> Node48<V> {
         debug_assert!(node.len <= 48);
         let mut new_node = Node48::new(&node.prefix);
         for (k, v) in node.drain() {
-            new_node.values[new_node.len as usize] = MaybeUninit::new(v);
+            new_node.values[new_node.len as usize] = Some(v);
             new_node.keys[k as usize] = new_node.len as u8 + 1;
             new_node.len += 1;
         }
@@ -325,7 +322,7 @@ impl<V> Node48<V> {
         self.keys.iter().filter_map(move |k| {
             if *k > 0 {
                 let val_index = *k as usize - 1;
-                unsafe { Some(&*slice[val_index].as_ptr()) }
+                slice.get(val_index).unwrap().as_ref()
             } else {
                 None
             }
