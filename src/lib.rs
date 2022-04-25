@@ -31,20 +31,19 @@
 //! ```
 
 mod keys;
-mod node;
-mod scanner;
-
-use crate::scanner::Scanner;
 pub use keys::ByteString;
 pub use keys::*;
-use node::*;
-// use std::arch::x86_64;
-use std::cmp::Ordering;
 
+mod node;
+use node::*;
+
+mod scanner;
+use scanner::Scanner;
+
+use std::cmp::Ordering;
 use std::ops::RangeBounds;
 use std::option::Option::Some;
-
-use std::{cmp, mem, ptr};
+use std::{mem, ptr};
 
 /// Adaptive Radix Tree.  
 ///
@@ -65,7 +64,6 @@ where
 {
     root: Option<TypedNode<K, V>>,
     // to make type !Send and !Sync
-    // _phantom: PhantomData<Rc<K>>,
 }
 
 impl<K: Key, V> Default for Art<K, V> {
@@ -534,24 +532,10 @@ impl<'a, K: Key, V> Art<K, V> {
     }
 }
 
-fn common_prefix_len(vec1: &[u8], vec2: &[u8]) -> usize {
-    // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    // {
-    //     let mut len = 0;
-    //     let mut vec_len = cmp::min(vec1.len(), vec2.len());
-    //     while len < vec_len {
-    //         unsafe {
-    //             let val =
-    //                 ((x86_64::_tzcnt_u32((vec1[len] ^ vec2[len]) as u32) & 0x20) >> 5) as usize;
-    //             vec_len *= val;
-    //             len += val;
-    //         }
-    //     }
-    //     return len;
-    // }
+fn common_prefix_len(k1: &[u8], k2: &[u8]) -> usize {
     let mut len = 0;
-    for i in 0..cmp::min(vec1.len(), vec2.len()) {
-        if vec1[i] != vec2[i] {
+    for (b1, b2) in k1.iter().zip(k2.iter()) {
+        if b1 != b2 {
             break;
         }
         len += 1;
