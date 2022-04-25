@@ -51,18 +51,32 @@ impl<V, const N: usize> Drop for FlatNode<V, N> {
 //     }
 // }
 
+impl<V, const N: usize> FlatNode<V, N> {
+    fn remove_index(&mut self, i: usize) -> V {
+        let val = unsafe { mem::replace(&mut self.values[i], MaybeUninit::uninit()).assume_init() };
+        self.keys[i] = self.keys[self.len - 1];
+        self.values[i] = mem::replace(&mut self.values[self.len - 1], MaybeUninit::uninit());
+        self.len -= 1;
+        val
+    }
+
+    fn unchecked_push(&mut self, key: u8, val: V) {
+        self.keys[self.len] = key;
+        self.values[self.len] = MaybeUninit::new(val);
+        self.len += 1;
+    }
+}
+
 impl<V, const N: usize> Node<V> for FlatNode<V, N> {
-    fn insert(&mut self, key: u8, value: V) -> Option<InsertError<V>> {
+    fn insert(&mut self, key: u8, val: V) -> Option<InsertError<V>> {
         if self.len >= N {
-            return Some(InsertError::Overflow(value));
+            return Some(InsertError::Overflow(val));
         }
 
         match self.get_mut(key) {
             Some(_) => Some(InsertError::DuplicateKey),
             None => {
-                self.keys[self.len] = key;
-                self.values[self.len] = MaybeUninit::new(value);
-                self.len += 1;
+                self.unchecked_push(key, val);
                 None
             }
         }
@@ -71,16 +85,7 @@ impl<V, const N: usize> Node<V> for FlatNode<V, N> {
     fn remove(&mut self, key: u8) -> Option<V> {
         match self.get_key_index(key) {
             None => None,
-            Some(i) => {
-                let val = unsafe {
-                    mem::replace(&mut self.values[i], MaybeUninit::uninit()).assume_init()
-                };
-                self.keys[i] = self.keys[self.len - 1];
-                self.values[i] =
-                    mem::replace(&mut self.values[self.len - 1], MaybeUninit::uninit());
-                self.len -= 1;
-                Some(val)
-            }
+            Some(i) => Some(self.remove_index(i)),
         }
     }
 
@@ -165,14 +170,9 @@ impl<V, const N: usize> FlatNode<V, N> {
         let mut new_node = FlatNode::new(&self.prefix);
         new_node.len = self.len;
         new_node.keys[..self.len].copy_from_slice(&self.keys[..self.len]);
-        unsafe {
-            ptr::copy_nonoverlapping(
-                self.values[..self.len].as_ptr(),
-                new_node.values[..self.len].as_mut_ptr(),
-                self.len,
-            );
-        };
-
+        for (v, nn) in self.values.iter_mut().zip(new_node.values.iter_mut()) {
+            mem::swap(v, nn);
+        }
         // emulate that all values was moved out from node before drop
         self.len = 0;
         new_node
@@ -181,7 +181,7 @@ impl<V, const N: usize> FlatNode<V, N> {
     fn iter(&self) -> impl DoubleEndedIterator<Item = &V> {
         let mut kvs: Vec<(u8, &V)> = self.keys[..self.len]
             .iter()
-            .zip(&self.values[..self.len])
+            .zip(self.values[..self.len].iter())
             .map(|(k, v)| (*k, unsafe { &*v.as_ptr() }))
             .collect();
         kvs.sort_unstable_by_key(|(k, _)| *k);
