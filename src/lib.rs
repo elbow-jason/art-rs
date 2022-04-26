@@ -4,9 +4,7 @@
 //!
 //! # Examples
 //! ```
-//! use art_tree::ByteString;
-//! use art_tree::KeyBuilder;
-//! use art_tree::Art;
+//! use art_tree::{Art, Key};
 //!
 //! let mut art = Art::<u16, u16>::new();
 //! for i in 0..u8::MAX as u16 {
@@ -17,21 +15,20 @@
 //!     assert!(matches!(art.remove(&i), Some(val) if val == i));
 //! }
 //!
-//! let mut art = Art::<ByteString, u16>::new();
+//! let mut art = Art::<(u16, &str), u16>::new();
 //! for i in 0..u8::MAX as u16 {
-//!     let key = KeyBuilder::new().append(i).append(ByteString::new("abc".to_string().as_bytes())).build();
+//!     let key = (i, "abc");
 //!     art.upsert(key.clone(), i + 1);
 //!     assert!(matches!(art.get(&key), Some(val) if val == &(i + 1)));
 //! }
 //!
-//! let from_key = KeyBuilder::new().append(16u16).append(ByteString::new("abc".to_string().as_bytes())).build();
-//! let until_key = KeyBuilder::new().append(20u16).append(ByteString::new("abc".to_string().as_bytes())).build();
+//! let from_key = (16u16, "abc");
+//! let until_key = (20u16, "abc");
 //! assert_eq!(art.range(from_key..=until_key).count(), 5);
 //! assert_eq!(art.iter().count(), u8::MAX as usize);
 //! ```
 
 mod keys;
-pub use keys::ByteString;
 pub use keys::*;
 
 mod node;
@@ -55,9 +52,8 @@ use std::{mem, ptr};
 /// - unsigned integers(u8, u16, u32, u64, u128)  
 /// - signed integers(i8, i16, i32, i64, i128)
 /// - usize
+/// - floating point numbers f32 and f64
 /// - floating point numbers through [Float32]/[Float64] types
-/// - [ByteString] for raw byte sequences. It can be used for ASCII strings(UTF-8 strings
-/// not supported now, they require additional library to convert into comparable byte sequence).
 pub struct Art<K, V>
 where
     K: Key,
@@ -98,10 +94,10 @@ impl<'a, K: Key, V> Art<K, V> {
     fn insert_internal(&mut self, key: K, value: V, upsert: bool) -> bool {
         let kb = key.to_bytes();
         let key_bytes = kb.as_slice();
-        // assert!(
-        //     !key_bytes.is_empty(),
-        //     "Key must have non empty byte string representation"
-        // );
+        assert!(
+            !key_bytes.is_empty(),
+            "Key must have non empty bytes representation"
+        );
 
         if self.root.is_none() {
             self.root.replace(TypedNode::Leaf(Leaf { key, value }));
@@ -553,25 +549,35 @@ struct InsertOp<'n, K, V> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Art, ByteString, Float32, Float64, KeyBuilder};
+    use crate::{Art, Float32, Float64, Key};
     use rand::prelude::IteratorRandom;
     use rand::seq::SliceRandom;
     use rand::{thread_rng, Rng};
     use std::collections::HashSet;
+
+    fn compound_key<A: Key, B: Key>(a: A, b: B) -> Vec<u8> {
+        let mut key = vec_key(a);
+        key.extend(b.to_bytes().as_slice());
+        key
+    }
+
+    fn vec_key<K: Key>(k: K) -> Vec<u8> {
+        k.to_bytes().as_slice().to_vec()
+    }
 
     #[test]
     fn seq_insert_combined_key() {
         let mut art = Art::new();
         for i in 0..=u8::MAX {
             for j in i8::MIN..=i8::MAX {
-                let key = KeyBuilder::new().append(i).append(j).build();
+                let key = compound_key(i, j);
                 assert!(art.insert(key, i.to_string()), "{}", i);
             }
         }
 
         for i in 0..=u8::MAX {
             for j in i8::MIN..=i8::MAX {
-                let key = KeyBuilder::new().append(i).append(j).build();
+                let key = compound_key(i, j);
                 assert!(matches!(art.get(&key), Some(val) if val == &i.to_string()));
             }
         }
@@ -865,14 +871,14 @@ mod tests {
         let mut art = Art::new();
         for i in 0..=u8::MAX {
             for j in i8::MIN..=i8::MAX {
-                let key = KeyBuilder::new().append(i).append(j).build();
+                let key = compound_key(i, j);
                 assert!(art.insert(key, i.to_string()), "{}", i);
             }
         }
 
         for i in 0..=u8::MAX {
             for j in i8::MIN..=i8::MAX {
-                let key = KeyBuilder::new().append(i).append(j).build();
+                let key = compound_key(i, j);
                 assert!(matches!(art.remove(&key), Some(val) if val == i.to_string()));
                 assert!(matches!(art.get(&key), None));
             }
@@ -1075,45 +1081,45 @@ mod tests {
     fn modifications_with_seq_keys_with_increasing_size() {
         let mut art = Art::new();
         for i in 0..=u8::MAX {
-            let key = KeyBuilder::new().append(i).build();
+            let key = vec_key(i);
             assert!(art.insert(key.clone(), i.to_string()), "{}", i);
             assert!(matches!(art.get(&key), Some(val) if val == &i.to_string()));
         }
         for i in 0..=u8::MAX {
-            let key = KeyBuilder::new().append(i).build();
+            let key = vec_key(i);
             assert!(matches!(art.get(&key), Some(val) if val == &i.to_string()));
         }
 
         for i in u8::MAX as u16 + 1..=u16::MAX {
-            let key = KeyBuilder::new().append(i).build();
+            let key = vec_key(i);
             assert!(art.insert(key.clone(), i.to_string()), "{}", i);
             assert!(matches!(art.get(&key), Some(val) if val == &i.to_string()));
         }
         for i in u8::MAX as u16 + 1..=u16::MAX {
-            let key = KeyBuilder::new().append(i).build();
+            let key = vec_key(i);
             assert!(matches!(art.get(&key), Some(val) if val == &i.to_string()));
         }
 
         for i in u16::MAX as u32 + 1..=(1 << 21) as u32 {
-            let key = KeyBuilder::new().append(i).build();
+            let key = vec_key(i);
             assert!(art.insert(key.clone(), i.to_string()), "{}", i);
             assert!(matches!(art.get(&key), Some(val) if val == &i.to_string()));
         }
         for i in u16::MAX as u32 + 1..=(1 << 21) as u32 {
-            let key = KeyBuilder::new().append(i).build();
+            let key = vec_key(i);
             assert!(matches!(art.get(&key), Some(val) if val == &i.to_string()));
         }
 
         for i in 0..=u8::MAX {
-            let key = KeyBuilder::new().append(i).build();
+            let key = vec_key(i);
             assert!(matches!(art.remove(&key), Some(val) if val == i.to_string()));
         }
         for i in u8::MAX as u16 + 1..=u16::MAX {
-            let key = KeyBuilder::new().append(i).build();
+            let key = vec_key(i);
             assert!(matches!(art.remove(&key), Some(val) if val == i.to_string()));
         }
         for i in u16::MAX as u32 + 1..=(1 << 21) as u32 {
-            let key = KeyBuilder::new().append(i).build();
+            let key = vec_key(i);
             assert!(matches!(art.remove(&key), Some(val) if val == i.to_string()));
         }
     }
@@ -1122,12 +1128,9 @@ mod tests {
     fn insert_with_long_prefix() {
         let mut art = Art::new();
         long_prefix_test(&mut art, |art, key| {
-            assert!(
-                art.insert(ByteString::new(key.as_bytes()), key.clone()),
-                "{}",
-                key
-            );
-            assert!(matches!(art.get(&ByteString::new(key.as_bytes())), Some(val) if val == &key));
+            let vk = vec_key(key.clone());
+            assert!(art.insert(vk.clone(), key.clone()), "{}", key);
+            assert!(matches!(art.get(&vk), Some(val) if val == &key));
         });
     }
 
@@ -1136,13 +1139,14 @@ mod tests {
         let mut art = Art::new();
         let mut existing = HashSet::new();
         long_prefix_test(&mut art, |art, key| {
+            // let vk = vec_key(key.clone());
             if thread_rng().gen_bool(0.3) && !existing.is_empty() {
                 let key: &String = existing.iter().choose(&mut thread_rng()).unwrap();
                 let key = key.clone();
-                art.remove(&ByteString::new(key.as_bytes())).unwrap();
+                art.remove(&key[..].as_bytes().to_vec()).unwrap();
                 existing.remove(&key);
             } else {
-                art.upsert(ByteString::new(key.as_bytes()), key.clone());
+                art.upsert(key.as_bytes().to_vec(), key.clone());
                 existing.insert(key);
             }
         });
@@ -1158,16 +1162,18 @@ mod tests {
         let mut art = Art::new();
         let mut existing = HashSet::new();
         long_prefix_test(&mut art, |art, key| {
+            let vk = vec_key(key.clone());
             if existing.insert(key.clone()) {
-                art.insert(ByteString::new(key.as_bytes()), key.clone());
+                art.insert(vk, key);
             }
         });
 
         for (i, key) in existing.iter().enumerate() {
             let new_val = i.to_string();
-            art.upsert(ByteString::new(key.as_bytes()), new_val.clone());
+            let vk = vec_key(key.clone());
+            art.upsert(vk.clone(), new_val.clone());
             assert!(matches!(
-                art.get(&ByteString::new(key.as_bytes())),
+                art.get(&vk),
                 Some(v) if v == &new_val
             ));
         }
@@ -1178,15 +1184,16 @@ mod tests {
         let mut art = Art::new();
         let mut existing = HashSet::new();
         long_prefix_test(&mut art, |art, key| {
+            let vk = vec_key(key.clone());
             if existing.insert(key.clone()) {
                 assert!(
-                    art.insert(ByteString::new(key.as_bytes()), key.clone()),
+                    art.insert(vk, key.clone()),
                     "{} not exist in tree, but insertion failed",
                     key
                 );
             } else {
                 assert!(
-                    !art.insert(ByteString::new(key.as_bytes()), key.clone()),
+                    !art.insert(vk, key.clone()),
                     "{} already exists but inserted again",
                     key
                 );
@@ -1199,26 +1206,24 @@ mod tests {
         let mut art = Art::new();
         let mut existing = HashSet::new();
         long_prefix_test(&mut art, |art, key| {
-            assert!(
-                art.insert(ByteString::new(key.as_bytes()), key.clone()),
-                "{}",
-                key
-            );
+            let vk = vec_key(key.clone());
+            assert!(art.insert(vk, key.clone()), "{}", key);
             existing.insert(key);
         });
 
         for key in existing {
+            let vk = vec_key(key.clone());
             assert!(
-                matches!(art.remove(&ByteString::new(key.as_bytes())), Some(val) if val == key),
+                matches!(art.remove(&vk), Some(val) if val == key.clone()),
                 "{}",
                 key
             );
-            assert!(matches!(art.get(&ByteString::new(key.as_bytes())), None));
+            assert!(matches!(art.get(&vk), None));
         }
     }
 
-    fn long_prefix_test<F: FnMut(&mut Art<ByteString, String>, String)>(
-        art: &mut Art<ByteString, String>,
+    fn long_prefix_test<F: FnMut(&mut Art<Vec<u8>, String>, String)>(
+        art: &mut Art<Vec<u8>, String>,
         mut test_fn: F,
     ) {
         let mut existing = HashSet::new();

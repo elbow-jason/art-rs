@@ -1,5 +1,4 @@
 use art_tree::Art;
-use art_tree::ByteString;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng};
@@ -27,23 +26,25 @@ pub fn insert(c: &mut Criterion) {
         })
     });
 
+    let keys = gen_keys(3, 2, 3);
+
     group.bench_function("rand_insert", |b| {
         let mut tree = Art::new();
         let mut rng = thread_rng();
-        let keys = gen_keys(3, 2, 3);
+        let i = rng.gen_range(0..keys.len());
         b.iter(|| {
-            let key = &keys[rng.gen_range(0..keys.len())];
-            tree.insert(ByteString::new(key.as_bytes()), key.clone());
+            tree.insert(&keys[i][..], &keys[i][..]);
         })
     });
+
+    let ks = gen_keys(3, 2, 3);
 
     group.bench_function("rand_upsert", |b| {
         let mut tree = Art::new();
         let mut rng = thread_rng();
-        let keys = gen_keys(3, 2, 3);
-        let key = keys[rng.gen_range(0..keys.len())].clone();
+        let i = rng.gen_range(0..ks.len());
         b.iter(|| {
-            tree.upsert(ByteString::new(key.as_bytes()), key.clone());
+            tree.upsert(&ks[i][..], &ks[i][..]);
         })
     });
     group.finish();
@@ -66,16 +67,17 @@ pub fn delete(c: &mut Criterion) {
         })
     });
 
+    let keys = gen_keys(3, 2, 3);
+
     group.bench_function("rand_remove", |b| {
         let mut tree = Art::new();
         let mut rng = thread_rng();
-        let keys = gen_keys(3, 2, 3);
-        for key in &keys {
-            tree.upsert(ByteString::new(key.as_bytes()), key.clone());
+        for key in keys.iter() {
+            tree.upsert(&key[..], &key[..]);
         }
         let key = &keys[rng.gen_range(0..keys.len())];
         b.iter(|| {
-            tree.remove(&ByteString::new(key.as_bytes()));
+            tree.remove(&&key[..]);
         })
     });
     group.finish();
@@ -129,15 +131,11 @@ pub fn iter(c: &mut Criterion) {
         });
     }
 
-    let outer_smalls: Vec<ByteString> = gen_keys(2, 2, 2)
-        .iter()
-        .map(|s| ByteString::new(s.as_bytes()))
-        .collect();
+    let outer_smalls: Vec<String> = gen_keys(2, 2, 2);
 
     group.bench_function("iter_small_sized_str", |b| {
         let mut tree = Art::new();
-        let smalls = outer_smalls.clone();
-        for (i, bs) in smalls.into_iter().enumerate() {
+        for (i, bs) in outer_smalls.iter().enumerate() {
             tree.insert(bs, i);
         }
         b.iter(|| {
@@ -145,15 +143,11 @@ pub fn iter(c: &mut Criterion) {
         })
     });
 
-    let outer_mids: Vec<ByteString> = gen_keys(4, 4, 3)
-        .iter()
-        .map(|s| ByteString::new(s.as_bytes()))
-        .collect();
+    let outer_mids: Vec<String> = gen_keys(4, 4, 3);
 
     group.bench_function("iter_mid_sized_str", |b| {
         let mut tree = Art::new();
-        let mids = outer_mids.clone();
-        for (i, bs) in mids.into_iter().enumerate() {
+        for (i, bs) in outer_mids.iter().enumerate() {
             tree.insert(bs, i);
         }
         b.iter(|| {
@@ -161,15 +155,11 @@ pub fn iter(c: &mut Criterion) {
         })
     });
 
-    let outer_larges: Vec<ByteString> = gen_keys(8, 6, 6)
-        .iter()
-        .map(|s| ByteString::new(s.as_bytes()))
-        .collect();
+    let outer_larges: Vec<String> = gen_keys(8, 6, 6);
 
     group.bench_function("iter_large_sized_str", |b| {
         let mut tree = Art::new();
-        let larges = outer_larges.clone();
-        for (i, bs) in larges.into_iter().enumerate() {
+        for (i, bs) in outer_larges.iter().enumerate() {
             tree.insert(bs, i);
         }
         b.iter(|| {

@@ -7,8 +7,7 @@ ARTful Indexing for Main-Memory Databases](https://15721.courses.cs.cmu.edu/spri
 paper.
 
 ```rust
-use art_tree::ByteString;
-use art_tree::KeyBuilder;
+
 use art_tree::Art;
 
 pub fn art_example() {
@@ -20,14 +19,14 @@ pub fn art_example() {
     for i in 0..u8::MAX as u16 {
         assert!(matches!(art.remove(&i), Some(val) if val == i));
     }
-    let mut art = Art::<ByteString, u16>::new();
+    let mut art = Art::<(u16, &str), u16>::new();
     for i in 0..u8::MAX as u16 {
-        let key = KeyBuilder::new().append(i).append(ByteString::new("abc".to_string().as_bytes())).build();
+        let key = (i, "abc");
         art.upsert(key.clone(), i + 1);
         assert!(matches!(art.get(&key), Some(val) if val == &(i + 1)));
     }
-    let from_key = KeyBuilder::new().append(16u16).append(ByteString::new("abc".to_string().as_bytes())).build();
-    let until_key = KeyBuilder::new().append(20u16).append(ByteString::new("abc".to_string().as_bytes())).build();
+    let from_key = (16u16, "abc");
+    let until_key = (20u16, "abc");
     assert_eq!(art.range(from_key..=until_key).count(), 5);
     assert_eq!(art.iter().count(), u8::MAX as usize);   
 }

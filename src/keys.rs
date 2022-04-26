@@ -26,13 +26,35 @@ impl<'a> KeyBuffer<'a> {
     }
 }
 
-// impl Deref for KeyBuffer {
-//     type Target = [u8];
+impl Key for &[u8] {
+    fn to_bytes(&self) -> KeyBuffer {
+        KeyBuffer::Slice(self)
+    }
+}
 
-//     fn deref(&self) -> &[u8] {
-//         self.as_slice()
-//     }
-// }
+impl Key for &Vec<u8> {
+    fn to_bytes(&self) -> KeyBuffer {
+        KeyBuffer::Slice(self)
+    }
+}
+
+impl Key for String {
+    fn to_bytes(&self) -> KeyBuffer {
+        KeyBuffer::Slice(self.as_bytes())
+    }
+}
+
+impl Key for &String {
+    fn to_bytes(&self) -> KeyBuffer {
+        KeyBuffer::Slice(self.as_bytes())
+    }
+}
+
+impl Key for &str {
+    fn to_bytes(&self) -> KeyBuffer {
+        KeyBuffer::Slice(self.as_bytes())
+    }
+}
 
 /// Trait represent [Art](crate::Art) key.
 /// Trait define method which convert key into byte comparable sequence. This sequence will be
@@ -48,42 +70,6 @@ pub trait Key: Clone {
     /// For instance, if `"abc" < "def"`, then `"abc".to_bytes() < "def".to_bytes()`.
     /// Violation of this rule is **undefined behaviour** and can cause `panic`.
     fn to_bytes<'a>(&'a self) -> KeyBuffer<'a>;
-}
-
-/// Implementation of [Key] which wraps bytes slice. It can be used to represent strings as
-/// comparable byte sequence.
-#[derive(Clone, PartialOrd, Ord, Debug)]
-#[repr(transparent)]
-pub struct ByteString {
-    bytes: Vec<u8>,
-}
-
-impl ByteString {
-    pub fn new(bytes: &[u8]) -> Self {
-        Self {
-            bytes: bytes.to_vec(),
-        }
-    }
-}
-
-// impl Borrow<[u8]> for ByteString {
-//     fn borrow(&self) -> &[u8] {
-//         &self.bytes
-//     }
-// }
-
-impl Key for ByteString {
-    fn to_bytes(&self) -> KeyBuffer {
-        KeyBuffer::Slice(&self.bytes[..])
-    }
-}
-
-impl Eq for ByteString {}
-
-impl PartialEq for ByteString {
-    fn eq(&self, other: &Self) -> bool {
-        self.bytes == other.bytes
-    }
 }
 
 macro_rules! impl_key {
@@ -104,6 +90,52 @@ impl_key!(u64, L8);
 impl_key!(u32, L4);
 impl_key!(u16, L2);
 impl_key!(u8, L1);
+
+fn build_arr<const N: usize>(a: &[u8], b: &[u8]) -> [u8; N] {
+    let a_len = a.len();
+    array_init::array_init(|i| {
+        if i < a_len {
+            *a.get(i).unwrap()
+        } else {
+            *b.get(i - a_len).unwrap()
+        }
+    })
+}
+
+impl<A: Key, B: Key> Key for (A, B) {
+    fn to_bytes(&self) -> KeyBuffer {
+        let a_buf = self.0.to_bytes();
+        let b_buf = self.0.to_bytes();
+        let a = a_buf.as_slice();
+        let b = b_buf.as_slice();
+        let a_len = a.len();
+        let b_len = b.len();
+        if a_len == 0 {
+            return b_buf;
+        }
+        if b_len == 0 {
+            return a_buf;
+        }
+        match a_len + b_len {
+            1 => KeyBuffer::L1(build_arr(a, b)),
+            2 => KeyBuffer::L2(build_arr(a, b)),
+            4 => KeyBuffer::L4(build_arr(a, b)),
+            8 => KeyBuffer::L8(build_arr(a, b)),
+            16 => KeyBuffer::L16(build_arr(a, b)),
+            _ => {
+                let mut a_vec = a.to_vec();
+                a_vec.extend(b);
+                KeyBuffer::Vec(a_vec)
+            }
+        }
+    }
+}
+
+impl Key for Vec<u8> {
+    fn to_bytes(&self) -> KeyBuffer {
+        KeyBuffer::Slice(&self[..])
+    }
+}
 
 impl Key for i8 {
     fn to_bytes(&self) -> KeyBuffer {
@@ -165,6 +197,20 @@ impl Key for i128 {
         let i = (v ^ xor) & xor;
         let j = i | (v & (u128::MAX >> 1));
         KeyBuffer::L16(j.to_be_bytes())
+    }
+}
+
+impl Key for f32 {
+    fn to_bytes(&self) -> KeyBuffer {
+        let f = Float32::from(*self);
+        KeyBuffer::L4(f.key)
+    }
+}
+
+impl Key for f64 {
+    fn to_bytes(&self) -> KeyBuffer {
+        let f = Float64::from(*self);
+        KeyBuffer::L8(f.key)
     }
 }
 
@@ -267,66 +313,5 @@ impl Key for Float32 {
 impl Key for Float64 {
     fn to_bytes(&self) -> KeyBuffer {
         KeyBuffer::L8(self.key)
-    }
-}
-
-/// Builder to create keys based on several other keys.
-///
-/// For instance, we have a structure:
-/// ```
-/// struct MyStruct(u8, String, u32, Box<f64>);
-/// ```
-/// and we want to store this structure inside [Art](crate::Art) tree. This structure can identified
-/// by first 2 fields: `(u8, String)`. We can create compound key based on them and use it as
-/// tree key.
-/// ```
-/// use art_tree::Art;
-/// use art_tree::KeyBuilder;
-/// use art_tree::ByteString;
-///
-/// struct MyStruct(u8, String, u32, Box<f64>);
-///
-/// let mut art = Art::new();
-/// let key = KeyBuilder::new().append(1).append(ByteString::new("abc".to_string().as_bytes())).build();
-/// let val = MyStruct(1, "abc".to_string(), 200, Box::new(0.1));
-/// assert!(art.insert(key.clone(), val));
-/// assert!(art.get(&key).is_some());
-/// ```
-#[repr(transparent)]
-pub struct KeyBuilder {
-    key: ByteString,
-}
-
-impl Default for KeyBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl KeyBuilder {
-    pub fn new() -> Self {
-        Self {
-            key: ByteString { bytes: Vec::new() },
-        }
-    }
-
-    pub fn with_capacity(cap: usize) -> Self {
-        Self {
-            key: ByteString {
-                bytes: Vec::with_capacity(cap),
-            },
-        }
-    }
-
-    pub fn append<K: Key>(mut self, key_part: K) -> Self {
-        for b in key_part.to_bytes().as_slice() {
-            self.key.bytes.push(*b);
-        }
-
-        self
-    }
-
-    pub fn build(self) -> ByteString {
-        self.key
     }
 }
