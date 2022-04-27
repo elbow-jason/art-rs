@@ -142,14 +142,19 @@ impl<V, const N: usize> FlatNode<V, N> {
         new_node
     }
 
-    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &V> {
-        let mut kvs: Vec<(u8, &V)> = self.keys[..self.len]
-            .iter()
-            .zip(self.values[..self.len].iter())
-            .map(|(k, v)| (*k, v.as_ref().unwrap()))
-            .collect();
-        kvs.sort_unstable_by_key(|(k, _)| *k);
-        kvs.into_iter().map(|(_, v)| v)
+    // pub fn iter2(&self) -> FlatNodeIter2<V, N> {
+    //     FlatNodeIter2::new(self)
+    // }
+
+    pub fn iter(&self) -> FlatNodeIter<V, N> {
+        FlatNodeIter::new(self)
+        // let mut kvs: Vec<(u8, &V)> = self.keys[..self.len]
+        //     .iter()
+        //     .zip(self.values[..self.len].iter())
+        //     .map(|(k, v)| (*k, v.as_ref().unwrap()))
+        //     .collect();
+        // kvs.sort_unstable_by_key(|(k, _)| *k);
+        // kvs.into_iter().map(|(_, v)| v)
     }
 }
 
@@ -166,32 +171,85 @@ impl<V, const N: usize> From<Node48<V>> for FlatNode<V, N> {
 }
 
 pub struct FlatNodeIter<'a, V, const N: usize> {
-    node: &'a FlatNode<V, N>,
-    index: usize,
+    kvs: [(u8, Option<&'a V>); N],
+    hi: usize,
+    lo: usize,
 }
 
 impl<'a, V, const N: usize> FlatNodeIter<'a, V, N> {
     fn new(node: &'a FlatNode<V, N>) -> FlatNodeIter<'a, V, N> {
-        FlatNodeIter { node, index: 0 }
+        let mut arr: [(u8, Option<&'a V>); N] = array_init::array_init(|i| {
+            if i <= node.len {
+                let k = node.keys.get(i).unwrap();
+                let v = node.values.get(i).unwrap().as_ref();
+                (*k, v)
+            } else {
+                (0u8, None)
+            }
+        });
+        (&mut arr[..node.len]).sort_by(|(k1, _v1), (k2, _v2)| (*k1).cmp(k2));
+        FlatNodeIter {
+            kvs: arr,
+            hi: node.len,
+            lo: 0,
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.hi - self.lo
     }
 }
 
 impl<'a, V, const N: usize> Iterator for FlatNodeIter<'a, V, N> {
-    type Item = (u8, &'a V);
+    type Item = &'a V;
 
-    fn next(&mut self) -> Option<(u8, &'a V)> {
-        if self.index >= self.node.len {
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.len() == 0 {
             return None;
         }
-        let key = *self.node.keys.get(self.index).unwrap();
-        let val = self.node.values.get(self.index).unwrap();
-        self.index += 1;
-        Some((key, val.as_ref().unwrap()))
+        let out = self.kvs.get(self.lo).map(|(_k, v)| v.unwrap());
+        self.lo += 1;
+        out
     }
 }
 
+impl<'a, V, const N: usize> DoubleEndedIterator for FlatNodeIter<'a, V, N> {
+    fn next_back(&mut self) -> Option<&'a V> {
+        if self.len() == 0 {
+            return None;
+        }
+        self.hi -= 1;
+        self.kvs.get(self.hi).map(|(_k, v)| v.unwrap())
+    }
+}
+
+// pub struct FlatNodeIter2<'a, V, const N: usize> {
+//     node: &'a FlatNode<V, N>,
+//     index: usize,
+// }
+
+// impl<'a, V, const N: usize> FlatNodeIter2<'a, V, N> {
+//     fn new(node: &'a FlatNode<V, N>) -> FlatNodeIter2<'a, V, N> {
+//         FlatNodeIter2 { node, index: 0 }
+//     }
+// }
+
+// impl<'a, V, const N: usize> Iterator for FlatNodeIter2<'a, V, N> {
+//     type Item = (u8, &'a V);
+
+//     fn next(&mut self) -> Option<(u8, &'a V)> {
+//         if self.index >= self.node.len {
+//             return None;
+//         }
+//         let key = *self.node.keys.get(self.index).unwrap();
+//         let val = self.node.values.get(self.index).unwrap();
+//         self.index += 1;
+//         Some((key, val.as_ref().unwrap()))
+//     }
+// }
+
 #[test]
-fn test_flatnode_iter() {
+fn test_flatnode_iterator_next() {
     let mut f = FlatNode::<i32, 8>::new(b"jas");
     assert!(f.insert(10, 20).is_ok());
     assert!(f.insert(30, 40).is_ok());
@@ -212,9 +270,39 @@ fn test_flatnode_iter() {
         ]
     );
     let mut it = FlatNodeIter::new(&f);
-    assert_eq!(it.next(), Some((10, &20)));
-    assert_eq!(it.next(), Some((30, &40)));
-    assert_eq!(it.next(), Some((50, &60)));
-    assert_eq!(it.next(), Some((70, &80)));
+    assert_eq!(it.next(), Some(&20));
+    assert_eq!(it.next(), Some(&40));
+    assert_eq!(it.next(), Some(&60));
+    assert_eq!(it.next(), Some(&80));
+    assert_eq!(it.next(), None);
+}
+
+#[test]
+fn test_flatnode_double_ended_iterator_next_back() {
+    let mut f = FlatNode::<i32, 8>::new(b"jas");
+    assert!(f.insert(10, 20).is_ok());
+    assert!(f.insert(30, 40).is_ok());
+    assert!(f.insert(50, 60).is_ok());
+    assert!(f.insert(70, 80).is_ok());
+    assert_eq!(f.keys, [10u8, 30, 50, 70, 0, 0, 0, 0]);
+    assert_eq!(
+        f.values,
+        [
+            Some(20i32),
+            Some(40),
+            Some(60),
+            Some(80),
+            None,
+            None,
+            None,
+            None
+        ]
+    );
+    let mut it = FlatNodeIter::new(&f);
+    assert_eq!(it.next_back(), Some(&80));
+    assert_eq!(it.next(), Some(&20));
+    assert_eq!(it.next_back(), Some(&60));
+    assert_eq!(it.next(), Some(&40));
+    assert_eq!(it.next_back(), None);
     assert_eq!(it.next(), None);
 }

@@ -53,8 +53,9 @@ impl<V> Node256<V> {
         }
     }
 
-    pub(crate) fn iter(&self) -> impl DoubleEndedIterator<Item = &V> {
-        self.values.iter().filter_map(|v| v.as_ref())
+    pub(crate) fn iter<'a>(&'a self) -> Node256Iter<'a, V> {
+        Node256Iter::new(self)
+        // self.values.iter().filter_map(|v| v.as_ref())
     }
 }
 
@@ -68,4 +69,94 @@ impl<V> From<Node48<V>> for Node256<V> {
 
         new_node
     }
+}
+
+pub struct Node256Iter<'a, V> {
+    values: &'a [Option<V>],
+    lo: u16,
+    hi: u16,
+}
+
+impl<'a, V> Node256Iter<'a, V> {
+    fn new(node: &'a Node256<V>) -> Node256Iter<'a, V> {
+        Node256Iter {
+            values: &node.values[..],
+            lo: 0,
+            hi: 256,
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.hi <= self.lo
+    }
+}
+
+impl<'a, V> Iterator for Node256Iter<'a, V> {
+    type Item = &'a V;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.is_empty() {
+                return None;
+            }
+            let val = self.values.get(self.lo as usize).unwrap().as_ref();
+            self.lo += 1;
+            if val.is_none() {
+                continue;
+            }
+            return val;
+        }
+    }
+}
+
+impl<'a, V> DoubleEndedIterator for Node256Iter<'a, V> {
+    fn next_back(&mut self) -> Option<&'a V> {
+        loop {
+            if self.is_empty() {
+                return None;
+            }
+            self.hi -= 1;
+            let val = self.values.get(self.hi as usize).unwrap().as_ref();
+            if val.is_none() {
+                continue;
+            }
+            return val;
+        }
+    }
+}
+
+#[test]
+fn test_node256_iterator_next() {
+    let mut f = Node256::<i32>::new(b"jas");
+    assert!(f.insert(10, 20).is_ok());
+    assert!(f.insert(30, 40).is_ok());
+    assert!(f.insert(50, 60).is_ok());
+    assert!(f.insert(70, 80).is_ok());
+    assert_eq!(f.values[10], Some(20));
+    assert_eq!(f.values[30], Some(40));
+    assert_eq!(f.values[50], Some(60));
+    assert_eq!(f.values[70], Some(80));
+    assert_eq!(f.values[71], None);
+    let mut it = Node256Iter::new(&f);
+    assert_eq!(it.next(), Some(&20));
+    assert_eq!(it.next(), Some(&40));
+    assert_eq!(it.next(), Some(&60));
+    assert_eq!(it.next(), Some(&80));
+    assert_eq!(it.next(), None);
+}
+
+#[test]
+fn test_node256_double_ended_iterator_next_back() {
+    let mut f = Node256::<i32>::new(b"jas");
+    assert!(f.insert(10, 20).is_ok());
+    assert!(f.insert(30, 40).is_ok());
+    assert!(f.insert(50, 60).is_ok());
+    assert!(f.insert(70, 80).is_ok());
+    let mut it = Node256Iter::new(&f);
+    assert_eq!(it.next_back(), Some(&80));
+    assert_eq!(it.next(), Some(&20));
+    assert_eq!(it.next_back(), Some(&60));
+    assert_eq!(it.next(), Some(&40));
+    assert_eq!(it.next_back(), None);
+    assert_eq!(it.next(), None);
 }

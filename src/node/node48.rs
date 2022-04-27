@@ -101,12 +101,76 @@ impl<V> Node48<V> {
         }
     }
 
-    pub(crate) fn iter(&self) -> impl DoubleEndedIterator<Item = &V> {
-        let slice = &self.values[..];
-        self.keys.iter().filter_map(move |k| match *k {
-            0 => None,
-            i_plus_one => slice.get((i_plus_one - 1) as usize).unwrap().as_ref(),
-        })
+    pub(crate) fn iter<'a>(&'a self) -> Node48Iter<'a, V> {
+        Node48Iter::new(self)
+        // let slice = &self.values[..];
+        // self.keys.iter().filter_map(move |k| match *k {
+        //     0 => None,
+        //     i_plus_one => slice.get((i_plus_one - 1) as usize).unwrap().as_ref(),
+        // })
+    }
+}
+
+pub struct Node48Iter<'a, V> {
+    values: &'a [Option<V>],
+    keys: &'a [u8],
+    hi: u16,
+    lo: u16,
+}
+
+impl<'a, V> Node48Iter<'a, V> {
+    fn new(node: &'a Node48<V>) -> Node48Iter<'a, V> {
+        Node48Iter {
+            values: &node.values[..node.len],
+            keys: &node.keys[..],
+            hi: 256,
+            lo: 0,
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.hi <= self.lo
+    }
+}
+
+impl<'a, V> Iterator for Node48Iter<'a, V> {
+    type Item = &'a V;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.is_empty() {
+                return None;
+            }
+            let k = *self.keys.get(self.lo as usize).unwrap();
+            self.lo += 1;
+            if k == 0 {
+                continue;
+            }
+
+            match self.values.get(k as usize - 1) {
+                None => continue,
+                Some(opt) => return opt.as_ref(),
+            }
+        }
+    }
+}
+
+impl<'a, V> DoubleEndedIterator for Node48Iter<'a, V> {
+    fn next_back(&mut self) -> Option<&'a V> {
+        loop {
+            if self.is_empty() {
+                return None;
+            }
+            let k = *self.keys.get(self.hi as usize - 1).unwrap();
+            self.hi -= 1;
+            if k == 0 {
+                continue;
+            }
+            match self.values.get(k as usize - 1) {
+                None => continue,
+                Some(v) => return v.as_ref(),
+            }
+        }
     }
 }
 
@@ -134,4 +198,51 @@ impl<V, const N: usize> From<FlatNode<V, N>> for Node48<V> {
         }
         new_node
     }
+}
+
+#[test]
+fn test_node48_iterator_next() {
+    let mut f = Node48::<i32>::new(b"jas");
+    assert!(f.insert(10, 20).is_ok());
+    assert!(f.insert(30, 40).is_ok());
+    assert!(f.insert(50, 60).is_ok());
+    assert!(f.insert(70, 80).is_ok());
+    assert_eq!(f.keys[10], 1);
+    assert_eq!(f.keys[30], 2);
+    assert_eq!(f.keys[50], 3);
+    assert_eq!(f.keys[70], 4);
+    assert_eq!(
+        &f.values[..5],
+        &[Some(20i32), Some(40), Some(60), Some(80), None][..]
+    );
+    let mut it = Node48Iter::new(&f);
+    assert_eq!(it.next(), Some(&20));
+    assert_eq!(it.next(), Some(&40));
+    assert_eq!(it.next(), Some(&60));
+    assert_eq!(it.next(), Some(&80));
+    assert_eq!(it.next(), None);
+}
+
+#[test]
+fn test_node48_double_ended_iterator_next_back() {
+    let mut f = Node48::<i32>::new(b"jas");
+    assert!(f.insert(10, 20).is_ok());
+    assert!(f.insert(30, 40).is_ok());
+    assert!(f.insert(50, 60).is_ok());
+    assert!(f.insert(70, 80).is_ok());
+    assert_eq!(f.keys[10], 1);
+    assert_eq!(f.keys[30], 2);
+    assert_eq!(f.keys[50], 3);
+    assert_eq!(f.keys[70], 4);
+    assert_eq!(
+        &f.values[..5],
+        &[Some(20i32), Some(40), Some(60), Some(80), None][..]
+    );
+    let mut it = Node48Iter::new(&f);
+    assert_eq!(it.next_back(), Some(&80));
+    assert_eq!(it.next(), Some(&20));
+    assert_eq!(it.next_back(), Some(&60));
+    assert_eq!(it.next(), Some(&40));
+    assert_eq!(it.next_back(), None);
+    assert_eq!(it.next(), None);
 }

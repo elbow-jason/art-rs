@@ -1,13 +1,13 @@
 // use std::arch::x86_64::*;
 
 mod flat_node;
-pub use flat_node::FlatNode;
+pub use flat_node::{FlatNode, FlatNodeIter};
 
 mod node48;
-pub use node48::Node48;
+pub use node48::{Node48, Node48Iter};
 
 mod node256;
-pub use node256::Node256;
+pub use node256::{Node256, Node256Iter};
 
 mod leaf;
 pub use leaf::Leaf;
@@ -15,24 +15,27 @@ pub use leaf::Leaf;
 mod node_ops;
 pub use node_ops::{InsertError, NodeOps};
 
-pub struct NodeIter<'a, V> {
-    node: Box<dyn DoubleEndedIterator<Item = &'a V> + 'a>,
+pub enum NodeIter<'a, V> {
+    Node4(FlatNodeIter<'a, V, 4>),
+    Node16(FlatNodeIter<'a, V, 16>),
+    Node48(Node48Iter<'a, V>),
+    Node256(Node256Iter<'a, V>),
 }
-
-impl<'a, V> NodeIter<'a, V> {
-    fn new<I>(iter: I) -> Self
-    where
-        I: DoubleEndedIterator<Item = &'a V> + 'a,
-    {
-        Self {
-            node: Box::new(iter),
-        }
-    }
-}
+// impl<'a, V> NodeIter<'a, V>
+// {
+//     fn new(it: I) -> Self {
+//         Self { it }
+//     }
+// }
 
 impl<'a, V> DoubleEndedIterator for NodeIter<'a, V> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.node.next_back()
+        match self {
+            NodeIter::Node4(it) => it.next_back(),
+            NodeIter::Node16(it) => it.next_back(),
+            NodeIter::Node48(it) => it.next_back(),
+            NodeIter::Node256(it) => it.next_back(),
+        }
     }
 }
 
@@ -40,7 +43,12 @@ impl<'a, V> Iterator for NodeIter<'a, V> {
     type Item = &'a V;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.node.next()
+        match self {
+            NodeIter::Node4(it) => it.next(),
+            NodeIter::Node16(it) => it.next(),
+            NodeIter::Node48(it) => it.next(),
+            NodeIter::Node256(it) => it.next(),
+        }
     }
 }
 
@@ -163,12 +171,12 @@ impl<V> BoxedNode<V> {
         }
     }
 
-    pub fn iter(&self) -> NodeIter<V> {
+    pub fn iter<'a>(&'a self) -> NodeIter<'a, V> {
         match self {
-            BoxedNode::Size4(node) => NodeIter::new(node.iter()),
-            BoxedNode::Size16(node) => NodeIter::new(node.iter()),
-            BoxedNode::Size48(node) => NodeIter::new(node.iter()),
-            BoxedNode::Size256(node) => NodeIter::new(node.iter()),
+            BoxedNode::Size4(node) => NodeIter::Node4(node.iter()),
+            BoxedNode::Size16(node) => NodeIter::Node16(node.iter()),
+            BoxedNode::Size48(node) => NodeIter::Node48(node.iter()),
+            BoxedNode::Size256(node) => NodeIter::Node256(node.iter()),
         }
     }
 }
