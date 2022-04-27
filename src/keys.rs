@@ -36,6 +36,41 @@ macro_rules! build_key_buffer {
                 }
             )*
         }
+
+        paste! {
+            impl<'a> KeyBuffer<'a> {
+                pub fn concat_slices(a: &[u8], b: &[u8]) -> KeyBuffer<'a> {
+                    use KeyBuffer::*;
+                    let a_len = a.len();
+                    let b_len = b.len();
+                    match a_len + b_len {
+                        $(
+                            $n => [<Arr $n>](build_arr(a, b)),
+                        )*
+                        _ => {
+                            let mut a_vec = a.to_vec();
+                            a_vec.extend(b);
+                            KeyBuffer::Vec(a_vec)
+                        }
+                    }
+                }
+            }
+            // match a_len + b_len {
+            //     1 => KeyBuffer::Arr1(build_arr(a, b)),
+            //     2 => KeyBuffer::Arr2(build_arr(a, b)),
+            //     4 => KeyBuffer::Arr3(build_arr(a, b)),
+            //     8 => KeyBuffer::Arr4(build_arr(a, b)),
+            //     16 => KeyBuffer::Arr5(build_arr(a, b)),
+
+            // }
+            // pub enum KeyBuffer<'a> {
+            //     Vec(Vec<u8>),
+            //     Slice(&'a [u8]),
+            //     $(
+            //         [<Arr $n>]([u8; $n]),
+            //     )*
+            // }
+        }
     }
 }
 
@@ -51,9 +86,18 @@ build_key_buffer!([
     175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193,
     194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212,
     213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231,
-    232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250,
-    251, 252, 253, 254, 255
+    232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248
 ]);
+
+impl<'a> KeyBuffer<'a> {
+    fn is_empty(&self) -> bool {
+        match self {
+            KeyBuffer::Vec(v) => v.is_empty(),
+            KeyBuffer::Slice(v) => v.is_empty(),
+            _ => false,
+        }
+    }
+}
 
 impl Key for &[u8] {
     fn to_bytes(&self) -> KeyBuffer {
@@ -120,6 +164,7 @@ impl_key!(u32, Arr4);
 impl_key!(u16, Arr2);
 impl_key!(u8, Arr1);
 
+#[inline(always)]
 fn build_arr<const N: usize>(a: &[u8], b: &[u8]) -> [u8; N] {
     let a_len = a.len();
     array_init::array_init(|i| {
@@ -135,28 +180,13 @@ impl<A: Key, B: Key> Key for (A, B) {
     fn to_bytes(&self) -> KeyBuffer {
         let a_buf = self.0.to_bytes();
         let b_buf = self.0.to_bytes();
-        let a = a_buf.as_slice();
-        let b = b_buf.as_slice();
-        let a_len = a.len();
-        let b_len = b.len();
-        if a_len == 0 {
+        if a_buf.is_empty() {
             return b_buf;
         }
-        if b_len == 0 {
+        if b_buf.is_empty() {
             return a_buf;
         }
-        match a_len + b_len {
-            1 => KeyBuffer::Arr1(build_arr(a, b)),
-            2 => KeyBuffer::Arr2(build_arr(a, b)),
-            4 => KeyBuffer::Arr3(build_arr(a, b)),
-            8 => KeyBuffer::Arr4(build_arr(a, b)),
-            16 => KeyBuffer::Arr5(build_arr(a, b)),
-            _ => {
-                let mut a_vec = a.to_vec();
-                a_vec.extend(b);
-                KeyBuffer::Vec(a_vec)
-            }
-        }
+        KeyBuffer::concat_slices(a_buf.as_slice(), b_buf.as_slice())
     }
 }
 
@@ -343,4 +373,10 @@ impl Key for Float64 {
     fn to_bytes(&self) -> KeyBuffer {
         self.key.into()
     }
+}
+
+#[test]
+fn test_sizeof_key_buffer_is_256() {
+    let s = std::mem::size_of::<KeyBuffer>();
+    assert_eq!(s, 256);
 }
