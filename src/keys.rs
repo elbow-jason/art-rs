@@ -1,30 +1,115 @@
+use paste::paste;
 use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::mem;
 
-pub enum KeyBuffer<'a> {
-    L1([u8; 1]),
-    L2([u8; 2]),
-    L4([u8; 4]),
-    L8([u8; 8]),
-    L16([u8; 16]),
-    Vec(Vec<u8>),
-    Slice(&'a [u8]),
+pub struct FlatNodeIter<'a, V, const N: usize> {
+    node: &'a FlatNode<V, N>,
+    index: usize,
 }
 
-impl<'a> KeyBuffer<'a> {
-    pub fn as_slice(&'a self) -> &'a [u8] {
-        match self {
-            KeyBuffer::L1(v) => &v[..],
-            KeyBuffer::L2(v) => &v[..],
-            KeyBuffer::L4(v) => &v[..],
-            KeyBuffer::L8(v) => &v[..],
-            KeyBuffer::L16(v) => &v[..],
-            KeyBuffer::Vec(v) => &v[..],
-            KeyBuffer::Slice(v) => &v[..],
+impl<'a, V, const N: usize> FlatNodeIter<'a, V, N> {
+    fn new(node: &'a FlatNode<V, N>) -> FlatNodeIter<'a, V, N> {
+        FlatNodeIter { node, index: 0 }
+    }
+}
+
+impl<'a, V, const N: usize> Iterator for FlatNodeIter<'a, V, N> {
+    type Item = (u8, &'a V);
+
+    fn next(&mut self) -> Option<(u8, &'a V)> {
+        if self.index >= self.node.len {
+            return None;
+        }
+        let key = *self.node.keys.get(self.index).unwrap();
+        let val = self.node.values.get(self.index).unwrap();
+        self.index += 1;
+        Some((key, val.as_ref().unwrap()))
+    }
+}
+
+pub struct FlatNode<V, const N: usize> {
+    prefix: Vec<u8>,
+    len: usize,
+    keys: [u8; N],
+    values: [Option<V>; N],
+}
+
+macro_rules! build_key_buffer {
+    ([ $( $n:literal ),* ]) => {
+        paste! {
+            pub enum KeyBuffer<'a> {
+                Vec(Vec<u8>),
+                Slice(&'a [u8]),
+                $(
+                    [<Arr $n>]([u8; $n]),
+                )*
+            }
+        }
+        paste! {
+            impl<'a> KeyBuffer<'a> {
+                pub fn as_slice(&'a self) -> &'a [u8] {
+                    use KeyBuffer::*;
+                    match self {
+                        KeyBuffer::Vec(v) => &v[..],
+                        KeyBuffer::Slice(v) => &v[..],
+                        $(
+                            [<Arr $n>](v) => &v[..],
+                        )*
+                    }
+                }
+            }
+            $(
+                impl<'a> From<[u8; $n]> for KeyBuffer<'a> {
+                    fn from(a: [u8; $n]) -> KeyBuffer<'a> {
+                        use KeyBuffer::*;
+                        [<Arr $n>](a)
+                    }
+                }
+            )*
         }
     }
 }
+
+build_key_buffer!([
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+    27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
+    51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74,
+    75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98,
+    99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117,
+    118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136,
+    137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155,
+    156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174,
+    175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193,
+    194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212,
+    213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231,
+    232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250,
+    251, 252, 253, 254, 255
+]);
+
+// pub enum KeyBuffer<'a> {
+//     L1([u8; 1]),
+//     L2([u8; 2]),
+//     L4([u8; 4]),
+//     L8([u8; 8]),
+//     L16([u8; 16]),
+//     Vec(Vec<u8>),
+//     Slice(&'a [u8]),
+// }
+
+// impl<'a> KeyBuffer<'a> {
+//     pub fn as_slice(&'a self) -> &'a [u8] {
+//         match self {
+//             KeyBuffer::L1(v) => &v[..],
+//             KeyBuffer::L2(v) => &v[..],
+//             KeyBuffer::L4(v) => &v[..],
+//             KeyBuffer::L8(v) => &v[..],
+//             KeyBuffer::L16(v) => &v[..],
+//             KeyBuffer::Vec(v) => &v[..],
+//             KeyBuffer::Slice(v) => &v[..],
+//         }
+//     }
+// }
 
 impl Key for &[u8] {
     fn to_bytes(&self) -> KeyBuffer {
@@ -84,12 +169,12 @@ macro_rules! impl_key {
 
 // const SIZEOF_USIZE: usize = std::mem::size_of::<usize>();
 
-impl_key!(u128, L16);
-impl_key!(usize, L8);
-impl_key!(u64, L8);
-impl_key!(u32, L4);
-impl_key!(u16, L2);
-impl_key!(u8, L1);
+impl_key!(u128, Arr16);
+impl_key!(usize, Arr8);
+impl_key!(u64, Arr8);
+impl_key!(u32, Arr4);
+impl_key!(u16, Arr2);
+impl_key!(u8, Arr1);
 
 fn build_arr<const N: usize>(a: &[u8], b: &[u8]) -> [u8; N] {
     let a_len = a.len();
@@ -117,11 +202,11 @@ impl<A: Key, B: Key> Key for (A, B) {
             return a_buf;
         }
         match a_len + b_len {
-            1 => KeyBuffer::L1(build_arr(a, b)),
-            2 => KeyBuffer::L2(build_arr(a, b)),
-            4 => KeyBuffer::L4(build_arr(a, b)),
-            8 => KeyBuffer::L8(build_arr(a, b)),
-            16 => KeyBuffer::L16(build_arr(a, b)),
+            1 => KeyBuffer::Arr1(build_arr(a, b)),
+            2 => KeyBuffer::Arr2(build_arr(a, b)),
+            4 => KeyBuffer::Arr3(build_arr(a, b)),
+            8 => KeyBuffer::Arr4(build_arr(a, b)),
+            16 => KeyBuffer::Arr5(build_arr(a, b)),
             _ => {
                 let mut a_vec = a.to_vec();
                 a_vec.extend(b);
@@ -156,7 +241,7 @@ impl Key for i8 {
         // v = 129 (0b1000_0001)
         // j = 0b0000_0000 | (0b1000_0001 & 0b0111_1111) = 0b0000_0000 | 0b0000_0001 = 0b0000_0001 = 1
         let j = i | (v & 0x7F);
-        KeyBuffer::L1(j.to_be_bytes())
+        j.to_be_bytes().into()
     }
 }
 
@@ -166,7 +251,7 @@ impl Key for i16 {
         let xor = 1 << 15;
         let i = (v ^ xor) & xor;
         let j = i | (v & (u16::MAX >> 1));
-        KeyBuffer::L2(j.to_be_bytes())
+        j.to_be_bytes().into()
     }
 }
 
@@ -176,7 +261,7 @@ impl Key for i32 {
         let xor = 1 << 31;
         let i = (v ^ xor) & xor;
         let j = i | (v & (u32::MAX >> 1));
-        KeyBuffer::L4(j.to_be_bytes())
+        j.to_be_bytes().into()
     }
 }
 
@@ -186,7 +271,7 @@ impl Key for i64 {
         let xor = 1 << 63;
         let i = (v ^ xor) & xor;
         let j = i | (v & (u64::MAX >> 1));
-        KeyBuffer::L8(j.to_be_bytes())
+        j.to_be_bytes().into()
     }
 }
 
@@ -196,21 +281,21 @@ impl Key for i128 {
         let xor = 1 << 127;
         let i = (v ^ xor) & xor;
         let j = i | (v & (u128::MAX >> 1));
-        KeyBuffer::L16(j.to_be_bytes())
+        j.to_be_bytes().into()
     }
 }
 
 impl Key for f32 {
     fn to_bytes(&self) -> KeyBuffer {
         let f = Float32::from(*self);
-        KeyBuffer::L4(f.key)
+        f.key.into()
     }
 }
 
 impl Key for f64 {
     fn to_bytes(&self) -> KeyBuffer {
         let f = Float64::from(*self);
-        KeyBuffer::L8(f.key)
+        f.key.into()
     }
 }
 
@@ -306,12 +391,41 @@ impl From<f64> for Float64 {
 
 impl Key for Float32 {
     fn to_bytes(&self) -> KeyBuffer {
-        KeyBuffer::L4(self.key)
+        self.key.into()
     }
 }
 
 impl Key for Float64 {
     fn to_bytes(&self) -> KeyBuffer {
-        KeyBuffer::L8(self.key)
+        self.key.into()
     }
 }
+
+// #[test]
+// fn test_flatnode_iter() {
+//     let mut f = FlatNode::<i32, 8>::new(b"jas");
+//     assert!(f.insert(10, 20).is_none());
+//     assert!(f.insert(30, 40).is_none());
+//     assert!(f.insert(50, 60).is_none());
+//     assert!(f.insert(70, 80).is_none());
+//     assert_eq!(f.keys, [10u8, 30, 50, 70, 0, 0, 0, 0]);
+//     assert_eq!(
+//         f.values,
+//         [
+//             Some(20i32),
+//             Some(40),
+//             Some(60),
+//             Some(80),
+//             None,
+//             None,
+//             None,
+//             None
+//         ]
+//     );
+//     let mut it = FlatNodeIter::new(&f);
+//     assert_eq!(it.next(), Some((10, &20)));
+//     assert_eq!(it.next(), Some((30, &40)));
+//     assert_eq!(it.next(), Some((50, &60)));
+//     assert_eq!(it.next(), Some((70, &80)));
+//     assert_eq!(it.next(), None);
+// }
