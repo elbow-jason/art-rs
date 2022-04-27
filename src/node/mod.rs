@@ -100,7 +100,7 @@ impl<V> BoxedNode<V> {
         }
     }
 
-    pub fn insert(&mut self, key: u8, value: V) -> Option<InsertError<V>> {
+    pub fn insert(&mut self, key: u8, value: V) -> Result<(), InsertError<V>> {
         match self {
             BoxedNode::Size4(node) => node.insert(key, value),
             BoxedNode::Size16(node) => node.insert(key, value),
@@ -189,7 +189,7 @@ mod tests {
         // resize from 16 to 4
         let mut node = FlatNode::<usize, 16>::new(&[]);
         for i in 0..4 {
-            node.insert(i as u8, i);
+            node.insert(i as u8, i).unwrap();
         }
         let mut resized: FlatNode<usize, 4> = node.resize();
         assert_eq!(resized.len, 4);
@@ -200,12 +200,12 @@ mod tests {
         // resize from 4 to 16
         let mut node = FlatNode::<usize, 4>::new(&[]);
         for i in 0..4 {
-            node.insert(i as u8, i);
+            node.insert(i as u8, i).unwrap();
         }
         let mut resized: FlatNode<usize, 16> = node.resize();
         assert_eq!(resized.len, 4);
         for i in 4..16 {
-            resized.insert(i as u8, i);
+            resized.insert(i as u8, i).unwrap();
         }
         assert_eq!(resized.len, 16);
         for i in 0..16 {
@@ -220,7 +220,7 @@ mod tests {
         // resize from 48 to 16
         let mut node = Node48::<usize>::new(&[]);
         for i in 0..16 {
-            node.insert(i as u8, i);
+            node.insert(i as u8, i).unwrap();
         }
         let mut resized: FlatNode<usize, 16> = FlatNode::from(node);
         assert_eq!(resized.len, 16);
@@ -231,7 +231,7 @@ mod tests {
         // resize from 48 to 4
         let mut node = Node48::<usize>::new(&[]);
         for i in 0..4 {
-            node.insert(i as u8, i);
+            node.insert(i as u8, i).unwrap();
         }
         let mut resized: FlatNode<usize, 4> = FlatNode::from(node);
         assert_eq!(resized.len, 4);
@@ -247,7 +247,7 @@ mod tests {
         // resize from 48 to 256
         let mut node = Node48::<usize>::new(&[]);
         for i in 0..48 {
-            node.insert(i as u8, i);
+            node.insert(i as u8, i).unwrap();
         }
         let mut resized = Node256::from(node);
         assert_eq!(resized.len, 48);
@@ -257,20 +257,21 @@ mod tests {
     }
 
     fn node_test(mut node: impl NodeOps<usize>, size: usize) {
+        // testing for duplicate key
         for i in 0..size {
-            assert!(node.insert(i as u8, i).is_none());
-            assert!(node.insert(i as u8, i).is_some());
+            assert!(node.insert(i as u8, i).is_ok());
+            assert!(node.insert(i as u8, i).is_err());
         }
 
         if size + 1 < u8::MAX as usize {
             assert!(matches!(
                 node.insert((size + 1) as u8, size + 1),
-                Some(InsertError::Overflow(_))
+                Err(InsertError::Overflow(_))
             ));
         } else {
             assert!(matches!(
                 node.insert((size + 1) as u8, size + 1),
-                Some(InsertError::DuplicateKey)
+                Err(InsertError::DuplicateKey)
             ));
         }
 

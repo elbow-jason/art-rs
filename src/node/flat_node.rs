@@ -39,16 +39,16 @@ impl<V, const N: usize> FlatNode<V, N> {
 }
 
 impl<V, const N: usize> NodeOps<V> for FlatNode<V, N> {
-    fn insert(&mut self, key: u8, val: V) -> Option<InsertError<V>> {
+    fn insert(&mut self, key: u8, val: V) -> Result<(), InsertError<V>> {
         if self.len >= N {
-            return Some(InsertError::Overflow(val));
+            return Err(InsertError::Overflow(val));
         }
 
         match self.get_mut(key) {
-            Some(_) => Some(InsertError::DuplicateKey),
+            Some(_) => Err(InsertError::DuplicateKey),
             None => {
                 self.unchecked_push(key, val);
-                None
+                Ok(())
             }
         }
     }
@@ -159,7 +159,7 @@ impl<V, const N: usize> From<Node48<V>> for FlatNode<V, N> {
         let mut new_node = FlatNode::new(&node.prefix);
         for (k, v) in node.drain() {
             let err = new_node.insert(k as u8, v);
-            debug_assert!(err.is_none());
+            debug_assert!(err.is_ok());
         }
         new_node
     }
@@ -193,10 +193,10 @@ impl<'a, V, const N: usize> Iterator for FlatNodeIter<'a, V, N> {
 #[test]
 fn test_flatnode_iter() {
     let mut f = FlatNode::<i32, 8>::new(b"jas");
-    assert!(f.insert(10, 20).is_none());
-    assert!(f.insert(30, 40).is_none());
-    assert!(f.insert(50, 60).is_none());
-    assert!(f.insert(70, 80).is_none());
+    assert!(f.insert(10, 20).is_ok());
+    assert!(f.insert(30, 40).is_ok());
+    assert!(f.insert(50, 60).is_ok());
+    assert!(f.insert(70, 80).is_ok());
     assert_eq!(f.keys, [10u8, 30, 50, 70, 0, 0, 0, 0]);
     assert_eq!(
         f.values,

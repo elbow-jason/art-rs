@@ -7,14 +7,14 @@ pub struct Node256<V> {
 }
 
 impl<V> NodeOps<V> for Node256<V> {
-    fn insert(&mut self, key: u8, value: V) -> Option<InsertError<V>> {
+    fn insert(&mut self, key: u8, value: V) -> Result<(), InsertError<V>> {
         let i = key as usize;
         if self.values[i].is_none() {
             self.values[i] = Some(value);
             self.len += 1;
-            None
+            Ok(())
         } else {
-            Some(InsertError::DuplicateKey)
+            Err(InsertError::DuplicateKey)
         }
     }
 

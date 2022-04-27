@@ -380,7 +380,7 @@ impl<'a, K: Key, V> Art<K, V> {
             // existing leaf and new interim node(which will hold new KV).
             let mut new_interim = FlatNode::new(prefix);
             let err = new_interim.insert(key_bytes[0], TypedNode::Leaf(Leaf::new(key, value)));
-            debug_assert!(err.is_none());
+            debug_assert!(err.is_ok());
 
             // safely move out value from node holder because
             // later we will override it without drop
@@ -399,7 +399,7 @@ impl<'a, K: Key, V> Art<K, V> {
             // later we will override it without drop
             let existing_leaf = unsafe { ptr::read(leaf) };
             let err = new_interim.insert(leaf_key[0], TypedNode::Leaf(existing_leaf));
-            debug_assert!(err.is_none());
+            debug_assert!(err.is_ok());
 
             TypedNode::Combined(
                 Box::new(TypedNode::Interim(BoxedNode::Size4(Box::new(new_interim)))),
@@ -414,9 +414,9 @@ impl<'a, K: Key, V> Art<K, V> {
             let leaf = unsafe { ptr::read(leaf) };
             let mut new_interim = FlatNode::new(prefix);
             let err = new_interim.insert(key_bytes[0], TypedNode::Leaf(Leaf::new(key, value)));
-            debug_assert!(err.is_none());
+            debug_assert!(err.is_ok());
             let err = new_interim.insert(leaf_key[0], TypedNode::Leaf(leaf));
-            debug_assert!(err.is_none());
+            debug_assert!(err.is_ok());
             TypedNode::Interim(BoxedNode::Size4(Box::new(new_interim)))
         };
         unsafe { ptr::write(node, new_interim) };
@@ -472,7 +472,7 @@ impl<'a, K: Key, V> Art<K, V> {
                 key_bytes[prefix_size],
                 TypedNode::Leaf(Leaf::new(key, value)),
             );
-            debug_assert!(res.is_none());
+            debug_assert!(res.is_ok());
             let mut interim = unsafe { ptr::read(interim) };
             let interim_key = prefix[prefix_size];
             // update prefix of existing interim to remaining part of old prefix.
@@ -484,7 +484,7 @@ impl<'a, K: Key, V> Art<K, V> {
                 interim.set_prefix(&[]);
             }
             let res = new_interim.insert(interim_key, TypedNode::Interim(interim));
-            debug_assert!(res.is_none());
+            debug_assert!(res.is_ok());
             unsafe {
                 ptr::write(
                     node_ptr,
@@ -509,19 +509,19 @@ impl<'a, K: Key, V> Art<K, V> {
                 // we find interim node which should contain new KV
                 let leaf = TypedNode::Leaf(Leaf::new(key.clone(), value));
                 match interim_ptr.insert(key_bytes[prefix_size], leaf) {
-                    Some(InsertError::Overflow(val)) => {
+                    Err(InsertError::Overflow(val)) => {
                         let interim = unsafe { ptr::read(interim_ptr) };
                         let mut new_interim = interim.expand();
                         let err = new_interim.insert(key_bytes[prefix_size], val);
                         debug_assert!(
-                            err.is_none(),
+                            err.is_ok(),
                             "Insert failed after node expand (unexpected duplicate key)"
                         );
                         unsafe { ptr::write(node_ptr, TypedNode::Interim(new_interim)) }
                         Ok(true)
                     }
-                    Some(InsertError::DuplicateKey) => panic!("Should not happen"),
-                    None => Ok(true),
+                    Err(InsertError::DuplicateKey) => panic!("Should not happen"),
+                    Ok(()) => Ok(true),
                 }
             }
         }

@@ -9,19 +9,19 @@ pub struct Node48<V> {
 }
 
 impl<V> NodeOps<V> for Node48<V> {
-    fn insert(&mut self, key: u8, value: V) -> Option<InsertError<V>> {
+    fn insert(&mut self, key: u8, value: V) -> Result<(), InsertError<V>> {
         let i = key as usize;
         if self.keys[i] != 0 {
-            return Some(InsertError::DuplicateKey);
+            return Err(InsertError::DuplicateKey);
         }
         if self.len >= 48 {
-            return Some(InsertError::Overflow(value));
+            return Err(InsertError::Overflow(value));
         }
 
         self.values[self.len as usize] = Some(value);
         self.keys[i] = self.len as u8 + 1;
         self.len += 1;
-        None
+        Ok(())
     }
 
     fn remove(&mut self, key: u8) -> Option<V> {
