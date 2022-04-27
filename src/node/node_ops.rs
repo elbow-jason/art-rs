@@ -1,5 +1,11 @@
+use thiserror::Error as ThisError;
+
+#[derive(ThisError, Debug)]
 pub enum InsertError<V> {
+    #[error("insert error - duplicate key")]
     DuplicateKey,
+
+    #[error("insert error - node overflow")]
     Overflow(V),
 }
 
