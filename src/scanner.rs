@@ -606,15 +606,11 @@ mod tests {
         chars.shuffle(&mut thread_rng());
         let chars = &chars[..thread_rng().gen_range(1..chars.len())];
         for i in 0..chars.len() {
-            let mut prefix = chars[i]
-                .to_bytes()
-                .as_slice()
-                .repeat(thread_rng().gen_range(1..8));
+            let rep1: usize = thread_rng().gen_range(1..8);
+            let mut prefix = chars[i].to_bytes().as_slice().repeat(rep1);
             for i in 0..chars.len() {
-                let level2_prefix = chars[i]
-                    .to_bytes()
-                    .as_slice()
-                    .repeat(thread_rng().gen_range(1..8));
+                let rep2: usize = thread_rng().gen_range(1..8);
+                let level2_prefix = chars[i].to_bytes().as_slice().repeat(rep2);
                 prefix.extend(level2_prefix);
                 for _ in 0..=u8::MAX {
                     let hi: usize = thread_rng().gen_range(0..8);

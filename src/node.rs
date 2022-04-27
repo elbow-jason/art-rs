@@ -171,6 +171,31 @@ impl<V, const N: usize> FlatNode<V, N> {
     }
 }
 
+pub struct FlatNodeIter<'a, V, const N: usize> {
+    node: &'a FlatNode<V, N>,
+    index: usize,
+}
+
+impl<'a, V, const N: usize> FlatNodeIter<'a, V, N> {
+    fn new(node: &'a FlatNode<V, N>) -> FlatNodeIter<'a, V, N> {
+        FlatNodeIter { node, index: 0 }
+    }
+}
+
+impl<'a, V, const N: usize> Iterator for FlatNodeIter<'a, V, N> {
+    type Item = (u8, &'a V);
+
+    fn next(&mut self) -> Option<(u8, &'a V)> {
+        if self.index >= self.node.len {
+            return None;
+        }
+        let key = *self.node.keys.get(self.index).unwrap();
+        let val = self.node.values.get(self.index).unwrap();
+        self.index += 1;
+        Some((key, val.as_ref().unwrap()))
+    }
+}
+
 pub struct Node48<V> {
     prefix: Vec<u8>,
     len: usize,
@@ -698,4 +723,33 @@ mod tests {
         let size = std::mem::size_of::<TypedNode<u8, ()>>();
         assert_eq!(size, 24);
     }
+}
+
+#[test]
+fn test_flatnode_iter() {
+    let mut f = FlatNode::<i32, 8>::new(b"jas");
+    assert!(f.insert(10, 20).is_none());
+    assert!(f.insert(30, 40).is_none());
+    assert!(f.insert(50, 60).is_none());
+    assert!(f.insert(70, 80).is_none());
+    assert_eq!(f.keys, [10u8, 30, 50, 70, 0, 0, 0, 0]);
+    assert_eq!(
+        f.values,
+        [
+            Some(20i32),
+            Some(40),
+            Some(60),
+            Some(80),
+            None,
+            None,
+            None,
+            None
+        ]
+    );
+    let mut it = FlatNodeIter::new(&f);
+    assert_eq!(it.next(), Some((10, &20)));
+    assert_eq!(it.next(), Some((30, &40)));
+    assert_eq!(it.next(), Some((50, &60)));
+    assert_eq!(it.next(), Some((70, &80)));
+    assert_eq!(it.next(), None);
 }

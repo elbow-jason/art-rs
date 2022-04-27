@@ -3,38 +3,6 @@ use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::mem;
 
-pub struct FlatNodeIter<'a, V, const N: usize> {
-    node: &'a FlatNode<V, N>,
-    index: usize,
-}
-
-impl<'a, V, const N: usize> FlatNodeIter<'a, V, N> {
-    fn new(node: &'a FlatNode<V, N>) -> FlatNodeIter<'a, V, N> {
-        FlatNodeIter { node, index: 0 }
-    }
-}
-
-impl<'a, V, const N: usize> Iterator for FlatNodeIter<'a, V, N> {
-    type Item = (u8, &'a V);
-
-    fn next(&mut self) -> Option<(u8, &'a V)> {
-        if self.index >= self.node.len {
-            return None;
-        }
-        let key = *self.node.keys.get(self.index).unwrap();
-        let val = self.node.values.get(self.index).unwrap();
-        self.index += 1;
-        Some((key, val.as_ref().unwrap()))
-    }
-}
-
-pub struct FlatNode<V, const N: usize> {
-    prefix: Vec<u8>,
-    len: usize,
-    keys: [u8; N],
-    values: [Option<V>; N],
-}
-
 macro_rules! build_key_buffer {
     ([ $( $n:literal ),* ]) => {
         paste! {
@@ -86,30 +54,6 @@ build_key_buffer!([
     232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250,
     251, 252, 253, 254, 255
 ]);
-
-// pub enum KeyBuffer<'a> {
-//     L1([u8; 1]),
-//     L2([u8; 2]),
-//     L4([u8; 4]),
-//     L8([u8; 8]),
-//     L16([u8; 16]),
-//     Vec(Vec<u8>),
-//     Slice(&'a [u8]),
-// }
-
-// impl<'a> KeyBuffer<'a> {
-//     pub fn as_slice(&'a self) -> &'a [u8] {
-//         match self {
-//             KeyBuffer::L1(v) => &v[..],
-//             KeyBuffer::L2(v) => &v[..],
-//             KeyBuffer::L4(v) => &v[..],
-//             KeyBuffer::L8(v) => &v[..],
-//             KeyBuffer::L16(v) => &v[..],
-//             KeyBuffer::Vec(v) => &v[..],
-//             KeyBuffer::Slice(v) => &v[..],
-//         }
-//     }
-// }
 
 impl Key for &[u8] {
     fn to_bytes(&self) -> KeyBuffer {
@@ -400,32 +344,3 @@ impl Key for Float64 {
         self.key.into()
     }
 }
-
-// #[test]
-// fn test_flatnode_iter() {
-//     let mut f = FlatNode::<i32, 8>::new(b"jas");
-//     assert!(f.insert(10, 20).is_none());
-//     assert!(f.insert(30, 40).is_none());
-//     assert!(f.insert(50, 60).is_none());
-//     assert!(f.insert(70, 80).is_none());
-//     assert_eq!(f.keys, [10u8, 30, 50, 70, 0, 0, 0, 0]);
-//     assert_eq!(
-//         f.values,
-//         [
-//             Some(20i32),
-//             Some(40),
-//             Some(60),
-//             Some(80),
-//             None,
-//             None,
-//             None,
-//             None
-//         ]
-//     );
-//     let mut it = FlatNodeIter::new(&f);
-//     assert_eq!(it.next(), Some((10, &20)));
-//     assert_eq!(it.next(), Some((30, &40)));
-//     assert_eq!(it.next(), Some((50, &60)));
-//     assert_eq!(it.next(), Some((70, &80)));
-//     assert_eq!(it.next(), None);
-// }
