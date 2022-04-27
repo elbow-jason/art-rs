@@ -1,5 +1,4 @@
 use paste::paste;
-use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::mem;
 
@@ -261,12 +260,6 @@ pub struct Float32 {
     key: [u8; 4],
 }
 
-impl Borrow<[u8]> for Float32 {
-    fn borrow(&self) -> &[u8] {
-        &self.key
-    }
-}
-
 impl Eq for Float32 {}
 
 impl PartialEq<Float32> for Float32 {
@@ -304,12 +297,6 @@ impl From<f32> for Float32 {
 #[repr(transparent)]
 pub struct Float64 {
     key: [u8; 8],
-}
-
-impl Borrow<[u8]> for Float64 {
-    fn borrow(&self) -> &[u8] {
-        &self.key
-    }
 }
 
 impl Eq for Float64 {}
