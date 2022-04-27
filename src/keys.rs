@@ -55,21 +55,6 @@ macro_rules! build_key_buffer {
                     }
                 }
             }
-            // match a_len + b_len {
-            //     1 => KeyBuffer::Arr1(build_arr(a, b)),
-            //     2 => KeyBuffer::Arr2(build_arr(a, b)),
-            //     4 => KeyBuffer::Arr3(build_arr(a, b)),
-            //     8 => KeyBuffer::Arr4(build_arr(a, b)),
-            //     16 => KeyBuffer::Arr5(build_arr(a, b)),
-
-            // }
-            // pub enum KeyBuffer<'a> {
-            //     Vec(Vec<u8>),
-            //     Slice(&'a [u8]),
-            //     $(
-            //         [<Arr $n>]([u8; $n]),
-            //     )*
-            // }
         }
     }
 }
