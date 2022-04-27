@@ -128,7 +128,7 @@ impl<V, const N: usize> From<FlatNode<V, N>> for Node48<V> {
         debug_assert!(node.len <= 48);
         let mut new_node = Node48::new(&node.prefix);
         for (k, v) in node.drain() {
-            new_node.values[new_node.len as usize] = Some(v);
+            new_node.values[new_node.len] = Some(v);
             new_node.keys[k as usize] = new_node.len as u8 + 1;
             new_node.len += 1;
         }

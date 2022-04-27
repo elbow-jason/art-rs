@@ -12,11 +12,8 @@ pub use node256::Node256;
 mod leaf;
 pub use leaf::Leaf;
 
-mod insert_error;
-pub use insert_error::InsertError;
-
-mod traits;
-pub use traits::NodeOps;
+mod node_ops;
+pub use node_ops::{InsertError, NodeOps};
 
 pub struct NodeIter<'a, V> {
     node: Box<dyn DoubleEndedIterator<Item = &'a V> + 'a>,
