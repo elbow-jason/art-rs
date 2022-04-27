@@ -103,13 +103,9 @@ impl<V> Node48<V> {
 
     pub(crate) fn iter(&self) -> impl DoubleEndedIterator<Item = &V> {
         let slice = &self.values[..];
-        self.keys.iter().filter_map(move |k| {
-            if *k > 0 {
-                let val_index = *k as usize - 1;
-                slice.get(val_index).unwrap().as_ref()
-            } else {
-                None
-            }
+        self.keys.iter().filter_map(move |k| match *k {
+            0 => None,
+            i_plus_one => slice.get((i_plus_one - 1) as usize).unwrap().as_ref(),
         })
     }
 }
