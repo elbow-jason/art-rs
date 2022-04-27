@@ -151,14 +151,17 @@ impl_key!(u8, Arr1);
 
 #[inline(always)]
 fn build_arr<const N: usize>(a: &[u8], b: &[u8]) -> [u8; N] {
-    let a_len = a.len();
-    array_init::array_init(|i| {
-        if i < a_len {
-            *a.get(i).unwrap()
-        } else {
-            *b.get(i - a_len).unwrap()
-        }
-    })
+    let mut arr = [0; N];
+    (&mut arr[..a.len()]).copy_from_slice(a);
+    (&mut arr[a.len()..]).copy_from_slice(b);
+    arr
+    // array_init::array_init(|i| {
+    //     if i < a_len {
+    //         *a.get(i).unwrap()
+    //     } else {
+    //         *b.get(i - a_len).unwrap()
+    //     }
+    // })
 }
 
 impl<A: Key, B: Key> Key for (A, B) {
