@@ -100,7 +100,7 @@ impl<'a, K: Key, V> Art<K, V> {
         );
 
         if self.root.is_none() {
-            self.root.replace(TypedNode::Leaf(Leaf { key, value }));
+            self.root.replace(TypedNode::Leaf(Leaf { key, val: value }));
             true
         } else {
             let mut node = self.root_mut().unwrap();
@@ -122,7 +122,7 @@ impl<'a, K: Key, V> Art<K, V> {
                         {
                             Ordering::Equal => {
                                 if upsert {
-                                    leaf.value = val;
+                                    leaf.val = val;
                                     Ok(true)
                                 } else {
                                     Ok(false)
@@ -180,14 +180,9 @@ impl<'a, K: Key, V> Art<K, V> {
                                         ptr::write(p, new_node);
                                     };
                                 }
-                                Some(p.remove(parent_link).unwrap().take_leaf().value)
+                                Some(p.remove(parent_link).unwrap().take_leaf().val)
                             } else {
-                                Some(
-                                    mem::replace(&mut self.root, None)
-                                        .unwrap()
-                                        .take_leaf()
-                                        .value,
-                                )
+                                Some(mem::replace(&mut self.root, None).unwrap().take_leaf().val)
                             }
                         } else {
                             None
@@ -195,10 +190,10 @@ impl<'a, K: Key, V> Art<K, V> {
                     }
                     TypedNode::Interim(interim) => {
                         if let Some((next_node, rem_key_bytes, key)) =
-                            Self::find_in_interim_mut(interim, key_bytes)
+                            Self::find_in_interim_mut(interim.node_mut(), key_bytes)
                         {
                             node_ptr = next_node as *mut TypedNode<K, V>;
-                            parent = Some(interim);
+                            parent = Some(interim.node_mut());
                             parent_link = key;
                             key_bytes = rem_key_bytes;
                         } else {
@@ -209,7 +204,7 @@ impl<'a, K: Key, V> Art<K, V> {
                         if key_ro_buffer == leaf.key.to_bytes().as_slice() {
                             let leaf = unsafe { ptr::read(leaf) };
                             unsafe { ptr::write(node_ptr, *ptr::read(interim)) };
-                            return Some(leaf.value);
+                            return Some(leaf.val);
                         } else {
                             node_ptr = interim.as_mut() as *mut TypedNode<K, V>;
                         }
@@ -238,14 +233,14 @@ impl<'a, K: Key, V> Art<K, V> {
             match typed_node {
                 TypedNode::Leaf(leaf) => {
                     return if leaf.key.to_bytes().as_slice() == key_ro_buffer {
-                        Some(&leaf.value)
+                        Some(&leaf.val)
                     } else {
                         None
                     }
                 }
                 TypedNode::Interim(interim) => {
                     if let Some((next_node, rem_key_bytes, _)) =
-                        Self::find_in_interim(&interim, key_bytes)
+                        Self::find_in_interim(interim.node(), key_bytes)
                     {
                         node = Some(next_node);
                         key_bytes = rem_key_bytes;
@@ -255,7 +250,7 @@ impl<'a, K: Key, V> Art<K, V> {
                 }
                 TypedNode::Combined(interim, leaf) => {
                     if *key_ro_buffer == *leaf.key.to_bytes().as_slice() {
-                        return Some(&leaf.value);
+                        return Some(&leaf.val);
                     } else {
                         node = Some(interim);
                     }
@@ -354,7 +349,7 @@ impl<'a, K: Key, V> Art<K, V> {
         let leaf = node.as_leaf_mut();
         if *key_bytes == *leaf.key.to_bytes().as_slice() {
             return if upsert {
-                leaf.value = value;
+                leaf.val = value;
                 true
             } else {
                 false
@@ -386,7 +381,9 @@ impl<'a, K: Key, V> Art<K, V> {
             // later we will override it without drop
             let existing_leaf = unsafe { ptr::read(leaf) };
             TypedNode::Combined(
-                Box::new(TypedNode::Interim(BoxedNode::Size4(Box::new(new_interim)))),
+                Box::new(TypedNode::Interim(Interim::new(BoxedNode::Size4(
+                    Box::new(new_interim),
+                )))),
                 existing_leaf,
             )
         } else if key_bytes.is_empty() {
@@ -402,7 +399,9 @@ impl<'a, K: Key, V> Art<K, V> {
             debug_assert!(err.is_ok());
 
             TypedNode::Combined(
-                Box::new(TypedNode::Interim(BoxedNode::Size4(Box::new(new_interim)))),
+                Box::new(TypedNode::Interim(Interim::new(BoxedNode::Size4(
+                    Box::new(new_interim),
+                )))),
                 Leaf::new(key, value),
             )
         } else {
@@ -417,7 +416,7 @@ impl<'a, K: Key, V> Art<K, V> {
             debug_assert!(err.is_ok());
             let err = new_interim.insert(leaf_key[0], TypedNode::Leaf(leaf));
             debug_assert!(err.is_ok());
-            TypedNode::Interim(BoxedNode::Size4(Box::new(new_interim)))
+            TypedNode::Interim(Interim::new(BoxedNode::Size4(Box::new(new_interim))))
         };
         unsafe { ptr::write(node, new_interim) };
         true
@@ -437,7 +436,7 @@ impl<'a, K: Key, V> Art<K, V> {
             unsafe {
                 let existing_interim = ptr::read(interim);
                 let new_interim = TypedNode::Combined(
-                    Box::new(TypedNode::Interim(existing_interim)),
+                    Box::new(TypedNode::Interim(Interim::new(existing_interim))),
                     Leaf::new(key, value),
                 );
                 ptr::write(node_ptr, new_interim)
@@ -456,7 +455,7 @@ impl<'a, K: Key, V> Art<K, V> {
             unsafe {
                 let existing_interim = ptr::read(interim);
                 let new_node = TypedNode::Combined(
-                    Box::new(TypedNode::Interim(existing_interim)),
+                    Box::new(TypedNode::Interim(Interim::new(existing_interim))),
                     Leaf::new(key, value),
                 );
                 ptr::write(node_ptr, new_node)
@@ -483,12 +482,12 @@ impl<'a, K: Key, V> Art<K, V> {
             } else {
                 interim.set_prefix(&[]);
             }
-            let res = new_interim.insert(interim_key, TypedNode::Interim(interim));
+            let res = new_interim.insert(interim_key, TypedNode::Interim(Interim::new(interim)));
             debug_assert!(res.is_ok());
             unsafe {
                 ptr::write(
                     node_ptr,
-                    TypedNode::Interim(BoxedNode::Size4(Box::new(new_interim))),
+                    TypedNode::Interim(Interim::new(BoxedNode::Size4(Box::new(new_interim)))),
                 )
             };
             Ok(true)
@@ -509,7 +508,7 @@ impl<'a, K: Key, V> Art<K, V> {
                 // we find interim node which should contain new KV
                 let leaf = TypedNode::Leaf(Leaf::new(key.clone(), value));
                 match interim_ptr.insert(key_bytes[prefix_size], leaf) {
-                    Err(InsertError::Overflow(val)) => {
+                    InsertStatus::Overflow(val) => {
                         let interim = unsafe { ptr::read(interim_ptr) };
                         let mut new_interim = interim.expand();
                         let err = new_interim.insert(key_bytes[prefix_size], val);
@@ -517,11 +516,13 @@ impl<'a, K: Key, V> Art<K, V> {
                             err.is_ok(),
                             "Insert failed after node expand (unexpected duplicate key)"
                         );
-                        unsafe { ptr::write(node_ptr, TypedNode::Interim(new_interim)) }
+                        unsafe {
+                            ptr::write(node_ptr, TypedNode::Interim(Interim::new(new_interim)))
+                        }
                         Ok(true)
                     }
-                    Err(InsertError::DuplicateKey) => panic!("Should not happen"),
-                    Ok(()) => Ok(true),
+                    InsertStatus::DuplicateKey => unreachable!(),
+                    InsertStatus::Ok => Ok(true),
                 }
             }
         }
@@ -545,6 +546,120 @@ struct InsertOp<'n, K, V> {
     key_byte_offset: usize,
     key: K,
     value: V,
+}
+
+#[test]
+fn art_with_no_items() {
+    let a: Art<i32, i32> = Art::new();
+    assert!(a.root.is_none());
+}
+
+#[test]
+fn art_with_one_items() {
+    let mut a: Art<i32, i32> = Art::new();
+    assert_eq!(a.insert(1, 2), true);
+    let root = a.root.unwrap();
+    let expected = Leaf::new(1, 2);
+    let leaf = root.take_leaf();
+    assert_eq!(leaf.key, expected.key);
+    assert_eq!(leaf.val, expected.val);
+}
+
+#[test]
+fn art_with_two_items_with_common_prefix() {
+    let mut a: Art<u32, u32> = Art::new();
+    assert!(a.root.is_none());
+    assert_eq!(a.insert(1, 2), true);
+    assert!(&a.root.as_ref().unwrap().is_leaf());
+    assert_eq!(a.insert(3, 4), true);
+    let mut root = a.root.unwrap();
+    let bnode = root.as_interim_mut();
+    assert_eq!(bnode.node_size(), 4);
+    assert_eq!(bnode.prefix(), &vec![0, 0, 0]);
+    let mut node_it: NodeIter<TypedNode<u32, u32>> = bnode.iter();
+    let one = node_it.next().unwrap();
+    assert!(one.is_leaf());
+    assert_eq!(one.leaf(), &Leaf::new(1u32, 2));
+    let two = node_it.next().unwrap();
+    assert!(two.is_leaf());
+    assert_eq!(two.leaf(), &Leaf::new(3u32, 4));
+    assert!(node_it.next().is_none());
+}
+
+#[test]
+fn art_with_two_items_with_no_common_prefix() {
+    let mut a: Art<i32, i32> = Art::new();
+    assert_eq!(a.insert(1, 2), true);
+    assert_eq!(a.insert(-1, -2), true);
+    let mut root = a.root.unwrap();
+    let bnode = root.as_interim_mut();
+    assert_eq!(bnode.node_size(), 4);
+    assert_eq!(bnode.prefix(), &vec![]);
+    let mut node_it: NodeIter<TypedNode<i32, i32>> = bnode.iter();
+    let one = node_it.next().unwrap();
+    assert!(one.is_leaf());
+    assert_eq!(one.leaf(), &Leaf::new(-1i32, -2));
+    let two = node_it.next().unwrap();
+    assert!(two.is_leaf());
+    assert_eq!(two.leaf(), &Leaf::new(1i32, 2));
+    assert!(node_it.next().is_none());
+}
+
+#[test]
+fn art_with_2_different_length_string_keys() {
+    let mut a: Art<String, i32> = Art::new();
+    let k1 = "aaa".to_owned();
+    let k2 = "bbbbb".to_owned();
+    // inserting 1 turns root into a leaf
+    assert_eq!(a.insert(k1.clone(), 2), true);
+    assert!(&a.root.as_ref().unwrap().is_leaf());
+    // inserting another turns root into an interim
+    assert_eq!(a.insert(k2.clone(), -2), true);
+    assert!(&a.root.as_ref().unwrap().is_interim());
+
+    let mut root = a.root.unwrap();
+    let bnode = root.as_interim_mut();
+    assert_eq!(bnode.node_size(), 4);
+    assert_eq!(bnode.prefix(), &[]);
+    let mut node_it: NodeIter<TypedNode<String, i32>> = bnode.iter();
+    let one = node_it.next().unwrap();
+    assert!(one.is_leaf());
+    assert_eq!(one.leaf(), &Leaf::new(k1.clone(), -2));
+    let two = node_it.next().unwrap();
+    assert!(two.is_leaf());
+    assert_eq!(two.leaf(), &Leaf::new(k2.clone(), 2));
+    assert!(node_it.next().is_none());
+}
+
+#[test]
+fn art_with_3_string_keys_with_2_common_prefix() {
+    let mut a: Art<String, i32> = Art::new();
+    let k1 = "aaa".to_owned();
+    let k2 = "bbbbb".to_owned();
+    let k3 = "bbbcc".to_owned();
+    // inserting 1 turns root into a leaf
+    assert_eq!(a.insert(k1.clone(), 2), true);
+    assert!(&a.root.as_ref().unwrap().is_leaf());
+    // inserting another turns root into an interim
+    assert_eq!(a.insert(k2.clone(), -2), true);
+    assert!(&a.root.as_ref().unwrap().is_interim());
+
+    assert_eq!(a.insert(k3.clone(), -16), true);
+    assert!(&a.root.as_ref().unwrap().is_interim());
+
+    let mut root = a.root.unwrap();
+    let bnode = root.as_interim_mut();
+    assert_eq!(bnode.node_size(), 4);
+    assert_eq!(bnode.prefix(), &[]);
+    let mut node_it: NodeIter<TypedNode<String, i32>> = bnode.iter();
+    let one = node_it.next().unwrap();
+    assert!(one.is_leaf());
+    assert_eq!(one.leaf(), &Leaf::new(k1.clone(), -2));
+    let two = node_it.next().unwrap();
+    assert!(two.is_interim());
+    let two_inter = two.interim();
+    assert_eq!(two_inter.node().prefix(), &vec![98, 98]);
+    assert!(node_it.next().is_none());
 }
 
 #[cfg(test)]
@@ -1114,10 +1229,12 @@ mod tests {
             let key = vec_key(i);
             assert!(matches!(art.remove(&key), Some(val) if val == i.to_string()));
         }
+
         for i in u8::MAX as u16 + 1..=u16::MAX {
             let key = vec_key(i);
             assert!(matches!(art.remove(&key), Some(val) if val == i.to_string()));
         }
+
         for i in u16::MAX as u32 + 1..=(1 << 21) as u32 {
             let key = vec_key(i);
             assert!(matches!(art.remove(&key), Some(val) if val == i.to_string()));

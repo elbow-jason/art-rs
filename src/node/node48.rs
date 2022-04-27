@@ -1,4 +1,4 @@
-use super::{FlatNode, InsertError, Node256, NodeOps};
+use super::{FlatNode, InsertStatus, Node256, NodeOps};
 use std::mem;
 
 pub struct Node48<V> {
@@ -9,19 +9,19 @@ pub struct Node48<V> {
 }
 
 impl<V> NodeOps<V> for Node48<V> {
-    fn insert(&mut self, key: u8, value: V) -> Result<(), InsertError<V>> {
+    fn insert(&mut self, key: u8, value: V) -> InsertStatus<V> {
         let i = key as usize;
         if self.keys[i] != 0 {
-            return Err(InsertError::DuplicateKey);
+            return InsertStatus::DuplicateKey;
         }
         if self.len >= 48 {
-            return Err(InsertError::Overflow(value));
+            return InsertStatus::Overflow(value);
         }
 
         self.values[self.len as usize] = Some(value);
         self.keys[i] = self.len as u8 + 1;
         self.len += 1;
-        Ok(())
+        InsertStatus::Ok
     }
 
     fn remove(&mut self, key: u8) -> Option<V> {

@@ -185,7 +185,7 @@ impl<'a, K: Key + Ord, V, R: RangeBounds<K>> DoubleEndedIterator for Scanner<'a,
                 .zip(self.last_forward_key)
                 .map_or(true, |(k1, k2)| k1 > k2)
             {
-                Some((&leaf.key, &leaf.value))
+                Some((&leaf.key, &leaf.val))
             } else {
                 self.backward.interims.clear();
                 self.backward.leafs.clear();
@@ -258,7 +258,7 @@ impl<'a, K: 'a + Key + Ord, V, R: RangeBounds<K>> Iterator for Scanner<'a, K, V,
                 .zip(self.last_backward_key)
                 .map_or(true, |(k1, k2)| k1 < k2)
             {
-                Some((&leaf.key, &leaf.value))
+                Some((&leaf.key, &leaf.val))
             } else {
                 self.forward.interims.clear();
                 self.forward.leafs.clear();

@@ -125,8 +125,10 @@ pub fn iter(c: &mut Criterion) {
             for i in 0..*size {
                 tree.insert(i, i);
             }
-            b.iter(|| {
-                tree.iter().count();
+            let mut it = tree.iter();
+            b.iter(|| match it.next() {
+                Some(_) => {}
+                None => it = tree.iter(),
             })
         });
     }
@@ -138,8 +140,10 @@ pub fn iter(c: &mut Criterion) {
         for (i, bs) in outer_smalls.iter().enumerate() {
             tree.insert(bs, i);
         }
-        b.iter(|| {
-            tree.iter().count();
+        let mut it = tree.iter();
+        b.iter(|| match it.next() {
+            Some(_) => {}
+            None => it = tree.iter(),
         })
     });
 
@@ -150,8 +154,10 @@ pub fn iter(c: &mut Criterion) {
         for (i, bs) in outer_mids.iter().enumerate() {
             tree.insert(bs, i);
         }
-        b.iter(|| {
-            tree.iter().count();
+        let mut it = tree.iter();
+        b.iter(|| match it.next() {
+            Some(_) => {}
+            None => it = tree.iter(),
         })
     });
 
@@ -162,8 +168,10 @@ pub fn iter(c: &mut Criterion) {
         for (i, bs) in outer_larges.iter().enumerate() {
             tree.insert(bs, i);
         }
-        b.iter(|| {
-            tree.iter().count();
+        let mut it = tree.iter();
+        b.iter(|| match it.next() {
+            Some(_) => {}
+            None => it = tree.iter(),
         })
     });
     group.finish();

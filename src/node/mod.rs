@@ -13,7 +13,7 @@ mod leaf;
 pub use leaf::Leaf;
 
 mod node_ops;
-pub use node_ops::{InsertError, NodeOps};
+pub use node_ops::{InsertStatus, NodeOps};
 
 pub enum NodeIter<'a, V> {
     Node4(FlatNodeIter<'a, V, 4>),
@@ -52,9 +52,71 @@ impl<'a, V> Iterator for NodeIter<'a, V> {
     }
 }
 
+pub struct Interim<K, V>(BoxedNode<TypedNode<K, V>>);
+
+impl<K, V> Interim<K, V> {
+    // #[cfg(test)]
+    // pub(crate) fn node_size(&self) -> usize {
+    //     self.node().node_size()
+    // }
+
+    pub(crate) fn new(node: BoxedNode<TypedNode<K, V>>) -> Interim<K, V> {
+        Interim(node)
+    }
+
+    pub(crate) fn node(&self) -> &BoxedNode<TypedNode<K, V>> {
+        &self.0
+    }
+
+    pub(crate) fn node_mut(&mut self) -> &mut BoxedNode<TypedNode<K, V>> {
+        &mut self.0
+    }
+
+    // pub fn prefix(&self) -> &[u8] {
+    //     self.node().prefix()
+    // }
+
+    // pub fn insert(
+    //     &mut self,
+    //     key: u8,
+    //     typed_node: TypedNode<K, V>,
+    // ) -> InsertStatus<TypedNode<K, V>> {
+    //     self.node_mut().insert(key, typed_node)
+    // }
+
+    // pub fn remove(&mut self, key: u8) -> Option<TypedNode<K, V>> {
+    //     self.node_mut().remove(key)
+    // }
+
+    // pub fn set_prefix(&mut self, prefix: &[u8]) {
+    //     self.node_mut().set_prefix(prefix)
+    // }
+
+    // pub fn expand(self) -> BoxedNode<TypedNode<K, V>> {
+    //     self.0.expand()
+    // }
+
+    // pub fn should_shrink(&self) -> bool {
+    //     self.node().should_shrink()
+    // }
+
+    // pub fn shrink(self) -> BoxedNode<TypedNode<K, V>> {
+    //     self.0.shrink()
+    // }
+
+    // pub fn get_mut(&mut self, key: u8) -> Option<&mut TypedNode<K, V>> {
+    //     self.node_mut().get_mut(key)
+    // }
+
+    pub fn iter<'a>(&'a self) -> NodeIter<'a, TypedNode<K, V>> {
+        self.node().iter()
+    }
+}
+
+// #[derive(Debug)]
 pub enum TypedNode<K, V> {
     /// Interim node contains links to leaf and interim nodes on next level of tree.
-    Interim(BoxedNode<TypedNode<K, V>>),
+    Interim(Interim<K, V>),
     /// Leaf node inside Art contains 1 key value pair.
     Leaf(Leaf<K, V>),
     /// Node which contains leaf and interim pointers at the same time.
@@ -85,8 +147,39 @@ impl<K, V> TypedNode<K, V> {
 
     pub fn as_interim_mut(&mut self) -> &mut BoxedNode<TypedNode<K, V>> {
         match self {
-            TypedNode::Interim(node) => node,
+            TypedNode::Interim(interim) => interim.node_mut(),
             _ => panic!("Only interim can be retrieved"),
+        }
+    }
+}
+
+#[cfg(test)]
+impl<K, V> TypedNode<K, V> {
+    pub fn leaf(&self) -> &Leaf<K, V> {
+        match self {
+            TypedNode::Leaf(node) => node,
+            _ => panic!("Only leaf can be retrieved"),
+        }
+    }
+
+    pub fn is_leaf(&self) -> bool {
+        match self {
+            TypedNode::Leaf(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_interim(&self) -> bool {
+        match self {
+            TypedNode::Interim(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn interim(&self) -> &Interim<K, V> {
+        match self {
+            TypedNode::Interim(inter) => inter,
+            _ => panic!("not an interim"),
         }
     }
 }
@@ -99,6 +192,16 @@ pub enum BoxedNode<V> {
 }
 
 impl<V> BoxedNode<V> {
+    #[cfg(test)]
+    pub(crate) fn node_size(&self) -> usize {
+        match self {
+            BoxedNode::Size4(_) => 4,
+            BoxedNode::Size16(_) => 16,
+            BoxedNode::Size48(_) => 48,
+            BoxedNode::Size256(_) => 256,
+        }
+    }
+
     pub fn prefix(&self) -> &[u8] {
         match self {
             BoxedNode::Size4(node) => &node.prefix,
@@ -108,7 +211,7 @@ impl<V> BoxedNode<V> {
         }
     }
 
-    pub fn insert(&mut self, key: u8, value: V) -> Result<(), InsertError<V>> {
+    pub fn insert(&mut self, key: u8, value: V) -> InsertStatus<V> {
         match self {
             BoxedNode::Size4(node) => node.insert(key, value),
             BoxedNode::Size16(node) => node.insert(key, value),
@@ -184,7 +287,7 @@ impl<V> BoxedNode<V> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::node::{FlatNode, InsertError, Node256, Node48, NodeOps};
+    use crate::node::{FlatNode, InsertStatus, Node256, Node48, NodeOps};
 
     #[test]
     fn test_flat_node_node_ops_impl() {
@@ -274,12 +377,12 @@ mod tests {
         if size + 1 < u8::MAX as usize {
             assert!(matches!(
                 node.insert((size + 1) as u8, size + 1),
-                Err(InsertError::Overflow(_))
+                InsertStatus::Overflow(_)
             ));
         } else {
             assert!(matches!(
                 node.insert((size + 1) as u8, size + 1),
-                Err(InsertError::DuplicateKey)
+                InsertStatus::DuplicateKey
             ));
         }
 

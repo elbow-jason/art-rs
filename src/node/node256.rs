@@ -1,4 +1,4 @@
-use super::{InsertError, Node48, NodeOps};
+use super::{InsertStatus, Node48, NodeOps};
 
 pub struct Node256<V> {
     pub(crate) prefix: Vec<u8>,
@@ -7,14 +7,14 @@ pub struct Node256<V> {
 }
 
 impl<V> NodeOps<V> for Node256<V> {
-    fn insert(&mut self, key: u8, value: V) -> Result<(), InsertError<V>> {
+    fn insert(&mut self, key: u8, value: V) -> InsertStatus<V> {
         let i = key as usize;
         if self.values[i].is_none() {
             self.values[i] = Some(value);
             self.len += 1;
-            Ok(())
+            InsertStatus::Ok
         } else {
-            Err(InsertError::DuplicateKey)
+            InsertStatus::DuplicateKey
         }
     }
 

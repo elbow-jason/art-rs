@@ -1,13 +1,24 @@
 use std::cmp::Ordering;
+use std::fmt;
 
 pub struct Leaf<K, V> {
     pub key: K,
-    pub value: V,
+    pub val: V,
+}
+
+impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for Leaf<K, V> {
+    // This trait requires `fmt` with this exact signature.
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Leaf")
+            .field("key", &self.key)
+            .field("val", &self.val)
+            .finish()
+    }
 }
 
 impl<K, V> Leaf<K, V> {
-    pub fn new(key: K, value: V) -> Self {
-        Self { key, value }
+    pub fn new(key: K, val: V) -> Self {
+        Self { key, val }
     }
 }
 

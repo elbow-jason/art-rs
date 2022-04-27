@@ -1,4 +1,4 @@
-use super::{InsertError, Node48, NodeOps};
+use super::{InsertStatus, Node48, NodeOps};
 use std::mem;
 
 pub struct FlatNode<V, const N: usize> {
@@ -39,16 +39,16 @@ impl<V, const N: usize> FlatNode<V, N> {
 }
 
 impl<V, const N: usize> NodeOps<V> for FlatNode<V, N> {
-    fn insert(&mut self, key: u8, val: V) -> Result<(), InsertError<V>> {
+    fn insert(&mut self, key: u8, val: V) -> InsertStatus<V> {
         if self.len >= N {
-            return Err(InsertError::Overflow(val));
+            return InsertStatus::Overflow(val);
         }
 
         match self.get_mut(key) {
-            Some(_) => Err(InsertError::DuplicateKey),
+            Some(_) => InsertStatus::DuplicateKey,
             None => {
                 self.unchecked_push(key, val);
-                Ok(())
+                InsertStatus::Ok
             }
         }
     }
