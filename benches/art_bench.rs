@@ -3,7 +3,7 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 use rand::prelude::*;
 use rand::{thread_rng, Rng};
 use std::collections::HashSet;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub fn insert(c: &mut Criterion) {
     let mut rng = thread_rng();
@@ -223,8 +223,39 @@ fn gen_keys(r: &mut ThreadRng, l1_prefix: usize, l2_prefix: usize, suffix: usize
     res
 }
 
-criterion_group!(mods, insert);
-criterion_group!(dels, delete);
-criterion_group!(gets, access);
-criterion_group!(iters, iter);
+fn cfg() -> Criterion {
+    Criterion::default()
+        .warm_up_time(Duration::from_millis(500))
+        .measurement_time(Duration::from_millis(1500))
+}
+
+// criterion_group!(config(), mods, insert);
+// criterion_group!(dels, delete);
+// criterion_group!(gets, access);
+// criterion_group!(iters, iter);
+
+criterion_group! {
+    name = mods;
+    config = cfg();
+    targets = insert
+}
+
+criterion_group! {
+    name = dels;
+    config = cfg();
+    targets = delete
+}
+
+criterion_group! {
+    name = gets;
+    config = cfg();
+    targets = access
+}
+
+criterion_group! {
+    name = iters;
+    config = cfg();
+    targets = iter
+}
+
 criterion_main!(mods, dels, gets, iters);
