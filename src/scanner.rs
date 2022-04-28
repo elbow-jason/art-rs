@@ -1,17 +1,17 @@
 use crate::node::*;
-use crate::{Key, KeyBuffer, Leaf, TypedNode};
+use crate::{Key, Leaf, Tree};
 use std::collections::{BinaryHeap, VecDeque};
-use std::ops::{Bound, RangeBounds, RangeInclusive};
+use std::ops::{Bound, RangeBounds};
 
-pub struct Scanner2<'a, K, V>
-where
-    K: Key + Ord,
-{
-    lo_key: Vec<u8>,
-    hi_key: Vec<u8>,
-    key: Vec<u8>,
-    iters: Vec<NodeIter<'a, TypedNode<K, V>>>,
-}
+// pub struct Scanner2<'a, K, V>
+// where
+//     K: Key + Ord,
+// {
+//     lo_key: Vec<u8>,
+//     hi_key: Vec<u8>,
+//     key: Vec<u8>,
+//     iters: Vec<NodeIter<'a, Tree<K, V>>>,
+// }
 
 pub struct Scanner<'a, K, V, R> {
     forward: ScannerState<'a, K, V>,
@@ -22,12 +22,12 @@ pub struct Scanner<'a, K, V, R> {
 }
 
 struct ScannerState<'a, K, V> {
-    interims: Vec<NodeIter<'a, TypedNode<K, V>>>,
+    interims: Vec<NodeIter<'a, Tree<K, V>>>,
     leafs: VecDeque<&'a Leaf<K, V>>,
 }
 
 struct BackwardScannerState<'a, K, V> {
-    interims: Vec<NodeIter<'a, TypedNode<K, V>>>,
+    interims: Vec<NodeIter<'a, Tree<K, V>>>,
     leafs: BinaryHeap<&'a Leaf<K, V>>,
 }
 
@@ -46,7 +46,7 @@ where
         }
     }
 
-    pub(crate) fn new(node: &'a TypedNode<K, V>, range: R) -> Self
+    pub(crate) fn new(node: &'a Tree<K, V>, range: R) -> Self
     where
         R: RangeBounds<K>,
     {
@@ -71,7 +71,7 @@ where
         }
     }
 
-    fn forward_scan<R>(node: &'a TypedNode<K, V>, range: &R) -> Self
+    fn forward_scan<R>(node: &'a Tree<K, V>, range: &R) -> Self
     where
         R: RangeBounds<K>,
     {
@@ -80,17 +80,17 @@ where
         let mut interims = Vec::new();
         loop {
             match node {
-                TypedNode::Leaf(leaf) => {
+                Tree::Leaf(leaf) => {
                     if range.contains(&leaf.key) {
                         leafs.push_back(leaf);
                     }
                     break;
                 }
-                TypedNode::Interim(interim) => {
+                Tree::Branch(interim) => {
                     interims.push(interim.iter());
                     break;
                 }
-                TypedNode::Combined(interim, leaf) => {
+                Tree::Combined(interim, leaf) => {
                     node = interim;
                     if range.contains(&leaf.key) {
                         leafs.push_back(leaf);
@@ -114,7 +114,7 @@ where
         }
     }
 
-    fn backward_scan<R>(node: &'a TypedNode<K, V>, range: &R) -> Self
+    fn backward_scan<R>(node: &'a Tree<K, V>, range: &R) -> Self
     where
         R: RangeBounds<K>,
     {
@@ -123,17 +123,17 @@ where
         let mut interims = Vec::new();
         loop {
             match node {
-                TypedNode::Leaf(leaf) => {
+                Tree::Leaf(leaf) => {
                     if range.contains(&leaf.key) {
                         leafs.push(leaf);
                     }
                     break;
                 }
-                TypedNode::Interim(interim) => {
+                Tree::Branch(interim) => {
                     interims.push(interim.iter());
                     break;
                 }
-                TypedNode::Combined(interim, leaf) => {
+                Tree::Combined(interim, leaf) => {
                     node = interim;
                     if range.contains(&leaf.key) {
                         leafs.push(leaf);
@@ -152,7 +152,7 @@ impl<'a, K: Key + Ord, V, R: RangeBounds<K>> DoubleEndedIterator for Scanner<'a,
             let mut e = node.next_back();
             loop {
                 match e {
-                    Some(TypedNode::Leaf(leaf)) => {
+                    Some(Tree::Leaf(leaf)) => {
                         if self.range.contains(&leaf.key) {
                             self.backward.leafs.push(leaf);
                             break 'outer;
@@ -169,11 +169,11 @@ impl<'a, K: Key + Ord, V, R: RangeBounds<K>> DoubleEndedIterator for Scanner<'a,
                         }
                         break;
                     }
-                    Some(TypedNode::Interim(interim)) => {
+                    Some(Tree::Branch(interim)) => {
                         self.backward.interims.push(interim.iter());
                         break;
                     }
-                    Some(TypedNode::Combined(interim, leaf)) => {
+                    Some(Tree::Combined(interim, leaf)) => {
                         if self.range.contains(&leaf.key) {
                             self.backward.leafs.push(leaf);
                         }
@@ -213,7 +213,7 @@ impl<'a, K: 'a + Key + Ord, V, R: RangeBounds<K>> Iterator for Scanner<'a, K, V,
             let mut e = node.next();
             loop {
                 match e {
-                    Some(TypedNode::Leaf(leaf)) => {
+                    Some(Tree::Leaf(leaf)) => {
                         if self.range.contains(&leaf.key) {
                             self.forward.leafs.push_back(leaf);
                             break 'outer;
@@ -231,11 +231,11 @@ impl<'a, K: 'a + Key + Ord, V, R: RangeBounds<K>> Iterator for Scanner<'a, K, V,
 
                         break;
                     }
-                    Some(TypedNode::Interim(interim)) => {
+                    Some(Tree::Branch(interim)) => {
                         self.forward.interims.push(interim.iter());
                         break;
                     }
-                    Some(TypedNode::Combined(interim, leaf)) => {
+                    Some(Tree::Combined(interim, leaf)) => {
                         if self.range.contains(&leaf.key) {
                             self.forward.leafs.push_back(leaf);
                             // next interim can be combined node

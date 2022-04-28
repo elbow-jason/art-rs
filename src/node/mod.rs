@@ -9,9 +9,6 @@ pub use node48::{Node48, Node48Iter};
 mod node256;
 pub use node256::{Node256, Node256Iter};
 
-mod leaf;
-pub use leaf::Leaf;
-
 mod node_ops;
 pub use node_ops::{InsertStatus, NodeOps};
 
@@ -154,7 +151,6 @@ impl<V> BoxedNode<V> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::node::{FlatNode, InsertStatus, Node256, Node48, NodeOps};
 
     #[test]
