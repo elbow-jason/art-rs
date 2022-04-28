@@ -1,7 +1,17 @@
 use crate::node::*;
-use crate::{Key, Leaf, TypedNode};
+use crate::{Key, KeyBuffer, Leaf, TypedNode};
 use std::collections::{BinaryHeap, VecDeque};
-use std::ops::{Bound, RangeBounds};
+use std::ops::{Bound, RangeBounds, RangeInclusive};
+
+pub struct Scanner2<'a, K, V>
+where
+    K: Key + Ord,
+{
+    lo_key: Vec<u8>,
+    hi_key: Vec<u8>,
+    key: Vec<u8>,
+    iters: Vec<NodeIter<'a, TypedNode<K, V>>>,
+}
 
 pub struct Scanner<'a, K, V, R> {
     forward: ScannerState<'a, K, V>,
