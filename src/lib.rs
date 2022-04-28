@@ -34,6 +34,9 @@ pub use keys::*;
 mod node;
 use node::*;
 
+mod tree;
+use tree::{Interim, TypedNode};
+
 mod scanner;
 use scanner::Scanner;
 
