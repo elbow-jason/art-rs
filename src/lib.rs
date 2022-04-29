@@ -35,7 +35,7 @@ mod node;
 use node::*;
 
 mod tree;
-use tree::{Branch, Leaf, Tree};
+use tree::{Leaf, Tree};
 
 mod scanner;
 use scanner::Scanner;
@@ -144,7 +144,7 @@ impl<'a, K: Key, V> Art<K, V> {
                             }),
                         }
                     }
-                    Tree::Branch(_) => Self::interim_insert(node, key, val, offset),
+                    Tree::BoxedNode(_) => Self::interim_insert(node, key, val, offset),
                 };
                 match res {
                     Ok(is_inserted) => return is_inserted,
@@ -171,8 +171,7 @@ impl<'a, K: Key, V> Art<K, V> {
             let mut parent: Option<&mut BoxedNode<Tree<K, V>>> = None;
             let mut node_ptr = root as *mut Tree<K, V>;
             loop {
-                let x: &mut Tree<K, V> = unsafe { &mut *node_ptr };
-                match x {
+                match unsafe { &mut *node_ptr } {
                     Tree::Leaf(leaf) => {
                         // TODO: merge nodes if parent contains only link to child node
                         return if key_ro_buffer == leaf.key.to_bytes().as_slice() {
@@ -191,12 +190,12 @@ impl<'a, K: Key, V> Art<K, V> {
                             None
                         };
                     }
-                    Tree::Branch(interim) => {
+                    Tree::BoxedNode(interim) => {
                         if let Some((next_node, rem_key_bytes, key)) =
-                            Self::find_in_interim_mut(interim.node_mut(), key_bytes)
+                            Self::find_in_interim_mut(interim, key_bytes)
                         {
                             node_ptr = next_node as *mut Tree<K, V>;
-                            parent = Some(interim.node_mut());
+                            parent = Some(interim);
                             parent_link = key;
                             key_bytes = rem_key_bytes;
                         } else {
@@ -241,9 +240,9 @@ impl<'a, K: Key, V> Art<K, V> {
                         None
                     }
                 }
-                Tree::Branch(interim) => {
+                Tree::BoxedNode(interim) => {
                     if let Some((next_node, rem_key_bytes, _)) =
-                        Self::find_in_interim(interim.node(), key_bytes)
+                        Self::find_in_interim(interim, key_bytes)
                     {
                         node = Some(next_node);
                         key_bytes = rem_key_bytes;
@@ -384,9 +383,7 @@ impl<'a, K: Key, V> Art<K, V> {
             // later we will override it without drop
             let existing_leaf = unsafe { ptr::read(leaf) };
             Tree::Combined(
-                Box::new(Tree::Branch(Branch::new(BoxedNode::Size4(Box::new(
-                    new_interim,
-                ))))),
+                Box::new(Tree::BoxedNode(BoxedNode::Size4(Box::new(new_interim)))),
                 existing_leaf,
             )
         } else if key_bytes.is_empty() {
@@ -402,9 +399,7 @@ impl<'a, K: Key, V> Art<K, V> {
             debug_assert!(err.is_ok());
 
             Tree::Combined(
-                Box::new(Tree::Branch(Branch::new(BoxedNode::Size4(Box::new(
-                    new_interim,
-                ))))),
+                Box::new(Tree::BoxedNode(BoxedNode::Size4(Box::new(new_interim)))),
                 Leaf::new(key, value),
             )
         } else {
@@ -419,7 +414,7 @@ impl<'a, K: Key, V> Art<K, V> {
             debug_assert!(err.is_ok());
             let err = new_interim.insert(leaf_key[0], Tree::Leaf(leaf));
             debug_assert!(err.is_ok());
-            Tree::Branch(Branch::new(BoxedNode::Size4(Box::new(new_interim))))
+            Tree::BoxedNode(BoxedNode::Size4(Box::new(new_interim)))
         };
         unsafe { ptr::write(node, new_interim) };
         true
@@ -439,7 +434,7 @@ impl<'a, K: Key, V> Art<K, V> {
             unsafe {
                 let existing_interim = ptr::read(interim);
                 let new_interim = Tree::Combined(
-                    Box::new(Tree::Branch(Branch::new(existing_interim))),
+                    Box::new(Tree::BoxedNode(existing_interim)),
                     Leaf::new(key, value),
                 );
                 ptr::write(node_ptr, new_interim)
@@ -458,7 +453,7 @@ impl<'a, K: Key, V> Art<K, V> {
             unsafe {
                 let existing_interim = ptr::read(interim);
                 let new_node = Tree::Combined(
-                    Box::new(Tree::Branch(Branch::new(existing_interim))),
+                    Box::new(Tree::BoxedNode(existing_interim)),
                     Leaf::new(key, value),
                 );
                 ptr::write(node_ptr, new_node)
@@ -482,12 +477,12 @@ impl<'a, K: Key, V> Art<K, V> {
             } else {
                 interim.set_prefix(&[]);
             }
-            let res = new_interim.insert(interim_key, Tree::Branch(Branch::new(interim)));
+            let res = new_interim.insert(interim_key, Tree::BoxedNode(interim));
             debug_assert!(res.is_ok());
             unsafe {
                 ptr::write(
                     node_ptr,
-                    Tree::Branch(Branch::new(BoxedNode::Size4(Box::new(new_interim)))),
+                    Tree::BoxedNode(BoxedNode::Size4(Box::new(new_interim))),
                 )
             };
             Ok(true)
@@ -516,7 +511,7 @@ impl<'a, K: Key, V> Art<K, V> {
                             err.is_ok(),
                             "Insert failed after node expand (unexpected duplicate key)"
                         );
-                        unsafe { ptr::write(node_ptr, Tree::Branch(Branch::new(new_interim))) }
+                        unsafe { ptr::write(node_ptr, Tree::BoxedNode(new_interim)) }
                         Ok(true)
                     }
                     InsertStatus::DuplicateKey => unreachable!(),
@@ -656,7 +651,7 @@ fn art_with_3_string_keys_with_2_common_prefix() {
     let two = node_it.next().unwrap();
     assert!(two.is_interim());
     let two_inter = two.interim();
-    assert_eq!(two_inter.node().prefix(), &vec![98, 98]);
+    assert_eq!(two_inter.prefix(), &vec![98, 98]);
     assert!(node_it.next().is_none());
 }
 

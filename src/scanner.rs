@@ -86,8 +86,8 @@ where
                     }
                     break;
                 }
-                Tree::Branch(interim) => {
-                    interims.push(interim.iter());
+                Tree::BoxedNode(boxed_node) => {
+                    interims.push(boxed_node.iter());
                     break;
                 }
                 Tree::Combined(interim, leaf) => {
@@ -129,8 +129,8 @@ where
                     }
                     break;
                 }
-                Tree::Branch(interim) => {
-                    interims.push(interim.iter());
+                Tree::BoxedNode(boxed_node) => {
+                    interims.push(boxed_node.iter());
                     break;
                 }
                 Tree::Combined(interim, leaf) => {
@@ -169,8 +169,8 @@ impl<'a, K: Key + Ord, V, R: RangeBounds<K>> DoubleEndedIterator for Scanner<'a,
                         }
                         break;
                     }
-                    Some(Tree::Branch(interim)) => {
-                        self.backward.interims.push(interim.iter());
+                    Some(Tree::BoxedNode(boxed_node)) => {
+                        self.backward.interims.push(boxed_node.iter());
                         break;
                     }
                     Some(Tree::Combined(interim, leaf)) => {
@@ -231,8 +231,8 @@ impl<'a, K: 'a + Key + Ord, V, R: RangeBounds<K>> Iterator for Scanner<'a, K, V,
 
                         break;
                     }
-                    Some(Tree::Branch(interim)) => {
-                        self.forward.interims.push(interim.iter());
+                    Some(Tree::BoxedNode(boxed_node)) => {
+                        self.forward.interims.push(boxed_node.iter());
                         break;
                     }
                     Some(Tree::Combined(interim, leaf)) => {

@@ -1,10 +1,12 @@
-use super::{Branch, Leaf};
+use std::cell::Cell;
+
+use super::Leaf;
 use crate::BoxedNode;
 
 // #[derive(Debug)]
 pub enum Tree<K, V> {
     /// Branch node contains links to leaf and interim nodes on next level of tree.
-    Branch(Branch<K, V>),
+    BoxedNode(BoxedNode<Tree<K, V>>),
     /// Leaf node inside Art contains 1 key value pair.
     Leaf(Leaf<K, V>),
     /// Node which contains leaf and interim pointers at the same time.
@@ -19,6 +21,11 @@ pub enum Tree<K, V> {
 }
 
 impl<K, V> Tree<K, V> {
+    #[inline]
+    pub fn new_combined(boxed_node: BoxedNode<Tree<K, V>>, leaf: Leaf<K, V>) -> Tree<K, V> {
+        Tree::Combined(Box::new(Tree::BoxedNode(boxed_node)), leaf)
+    }
+
     pub fn as_leaf_mut(&mut self) -> &mut Leaf<K, V> {
         match self {
             Tree::Leaf(node) => node,
@@ -35,7 +42,7 @@ impl<K, V> Tree<K, V> {
 
     pub fn as_interim_mut(&mut self) -> &mut BoxedNode<Tree<K, V>> {
         match self {
-            Tree::Branch(interim) => interim.node_mut(),
+            Tree::BoxedNode(interim) => interim,
             _ => panic!("Only interim can be retrieved"),
         }
     }
@@ -59,14 +66,14 @@ impl<K, V> Tree<K, V> {
 
     pub fn is_interim(&self) -> bool {
         match self {
-            Tree::Branch(_) => true,
+            Tree::BoxedNode(_) => true,
             _ => false,
         }
     }
 
-    pub fn interim(&self) -> &Branch<K, V> {
+    pub fn interim(&self) -> &BoxedNode<Tree<K, V>> {
         match self {
-            Tree::Branch(inter) => inter,
+            Tree::BoxedNode(inter) => inter,
             _ => panic!("not an interim"),
         }
     }

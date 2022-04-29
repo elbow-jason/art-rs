@@ -1,8 +1,8 @@
 mod leaf;
 pub use leaf::Leaf;
 
-mod branch;
-pub use branch::Branch;
+// mod branch;
+// pub use branch::BoxedNode;
 
 mod tree;
 pub use tree::Tree;
@@ -29,14 +29,10 @@ impl<K: Key, V> TreeNode<K, V> {
         if key.to_bytes().as_slice().len() <= key_start_offset {
             // no more bytes in key to go deeper inside the tree => replace interim by combined node
             // which will contains link to existing interim and leaf node with new KV.
-            unsafe {
-                let existing_interim = ptr::read(interim);
-                let new_interim = Tree::Combined(
-                    Box::new(Tree::Branch(Branch::new(existing_interim))),
-                    Leaf::new(key, value),
-                );
-                ptr::write(node_ptr, new_interim)
-            }
+
+            let existing_interim = unsafe { ptr::read(interim) };
+            let new_interim = Tree::new_combined(existing_interim, Leaf::new(key, value));
+            unsafe { ptr::write(node_ptr, new_interim) }
             return Ok(true);
         }
 
@@ -51,7 +47,7 @@ impl<K: Key, V> TreeNode<K, V> {
             unsafe {
                 let existing_interim = ptr::read(interim);
                 let new_node = Tree::Combined(
-                    Box::new(Tree::Branch(Branch::new(existing_interim))),
+                    Box::new(Tree::BoxedNode(existing_interim)),
                     Leaf::new(key, value),
                 );
                 ptr::write(node_ptr, new_node)
@@ -75,12 +71,12 @@ impl<K: Key, V> TreeNode<K, V> {
             } else {
                 interim.set_prefix(&[]);
             }
-            let res = new_interim.insert(interim_key, Tree::Branch(Branch::new(interim)));
+            let res = new_interim.insert(interim_key, Tree::BoxedNode(interim));
             debug_assert!(res.is_ok());
             unsafe {
                 ptr::write(
                     node_ptr,
-                    Tree::Branch(Branch::new(BoxedNode::Size4(Box::new(new_interim)))),
+                    Tree::BoxedNode(BoxedNode::Size4(Box::new(new_interim))),
                 )
             };
             Ok(true)
@@ -109,7 +105,7 @@ impl<K: Key, V> TreeNode<K, V> {
                             err.is_ok(),
                             "Insert failed after node expand (unexpected duplicate key)"
                         );
-                        unsafe { ptr::write(node_ptr, Tree::Branch(Branch::new(new_interim))) }
+                        unsafe { ptr::write(node_ptr, Tree::BoxedNode(new_interim)) }
                         Ok(true)
                     }
                     InsertStatus::DuplicateKey => unreachable!(),
@@ -170,9 +166,7 @@ impl<K: Key, V> TreeNode<K, V> {
             // later we will override it without drop
             let existing_leaf = unsafe { ptr::read(leaf) };
             Tree::Combined(
-                Box::new(Tree::Branch(Branch::new(BoxedNode::Size4(Box::new(
-                    new_interim,
-                ))))),
+                Box::new(Tree::BoxedNode(BoxedNode::Size4(Box::new(new_interim)))),
                 existing_leaf,
             )
         } else if key_bytes.is_empty() {
@@ -188,9 +182,7 @@ impl<K: Key, V> TreeNode<K, V> {
             debug_assert!(err.is_ok());
 
             Tree::Combined(
-                Box::new(Tree::Branch(Branch::new(BoxedNode::Size4(Box::new(
-                    new_interim,
-                ))))),
+                Box::new(Tree::BoxedNode(BoxedNode::Size4(Box::new(new_interim)))),
                 Leaf::new(key, value),
             )
         } else {
@@ -205,7 +197,7 @@ impl<K: Key, V> TreeNode<K, V> {
             debug_assert!(err.is_ok());
             let err = new_interim.insert(leaf_key[0], Tree::Leaf(leaf));
             debug_assert!(err.is_ok());
-            Tree::Branch(Branch::new(BoxedNode::Size4(Box::new(new_interim))))
+            Tree::BoxedNode(BoxedNode::Size4(Box::new(new_interim)))
         };
         unsafe { ptr::write(node, new_interim) };
         true
