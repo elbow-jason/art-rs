@@ -80,6 +80,7 @@ where
         let mut interims = Vec::new();
         loop {
             match node {
+                Tree::Empty => break,
                 Tree::Leaf(leaf) => {
                     if range.contains(&leaf.key) {
                         leafs.push_back(leaf);
@@ -123,6 +124,7 @@ where
         let mut interims = Vec::new();
         loop {
             match node {
+                Tree::Empty => break,
                 Tree::Leaf(leaf) => {
                     if range.contains(&leaf.key) {
                         leafs.push(leaf);
@@ -152,6 +154,7 @@ impl<'a, K: Key + Ord, V, R: RangeBounds<K>> DoubleEndedIterator for Scanner<'a,
             let mut e = node.next_back();
             loop {
                 match e {
+                    Some(Tree::Empty) => break,
                     Some(Tree::Leaf(leaf)) => {
                         if self.range.contains(&leaf.key) {
                             self.backward.leafs.push(leaf);
@@ -213,6 +216,7 @@ impl<'a, K: 'a + Key + Ord, V, R: RangeBounds<K>> Iterator for Scanner<'a, K, V,
             let mut e = node.next();
             loop {
                 match e {
+                    Some(Tree::Empty) => break,
                     Some(Tree::Leaf(leaf)) => {
                         if self.range.contains(&leaf.key) {
                             self.forward.leafs.push_back(leaf);

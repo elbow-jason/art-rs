@@ -3,8 +3,25 @@ use std::cell::Cell;
 use super::Leaf;
 use crate::BoxedNode;
 
+pub struct TreeCell<K, V> {
+    pub cell: Cell<Tree<K, V>>,
+}
+
+impl<K, V> TreeCell<K, V> {
+    pub fn new(tree: Tree<K, V>) -> TreeCell<K, V> {
+        TreeCell {
+            cell: Cell::new(tree),
+        }
+    }
+
+    pub fn tree(&self) -> Tree<K, V> {
+        self.cell.take()
+    }
+}
+
 // #[derive(Debug)]
 pub enum Tree<K, V> {
+    Empty,
     /// Branch node contains links to leaf and interim nodes on next level of tree.
     BoxedNode(BoxedNode<Tree<K, V>>),
     /// Leaf node inside Art contains 1 key value pair.
@@ -20,7 +37,20 @@ pub enum Tree<K, V> {
     Combined(Box<Tree<K, V>>, Leaf<K, V>),
 }
 
+impl<K, V> Default for Tree<K, V> {
+    fn default() -> Tree<K, V> {
+        Tree::Empty
+    }
+}
+
 impl<K, V> Tree<K, V> {
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Tree::Empty => true,
+            _ => false,
+        }
+    }
+
     #[inline]
     pub fn new_combined(boxed_node: BoxedNode<Tree<K, V>>, leaf: Leaf<K, V>) -> Tree<K, V> {
         Tree::Combined(Box::new(Tree::BoxedNode(boxed_node)), leaf)
