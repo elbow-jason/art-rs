@@ -57,7 +57,7 @@ use std::{fmt, mem, ptr};
 /// - usize
 /// - floating point numbers f32 and f64
 /// - floating point numbers through [Float32]/[Float64] types
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Art<K, V>
 where
     K: Key,
