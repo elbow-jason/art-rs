@@ -1,24 +1,24 @@
-use std::cell::Cell;
+// use std::cell::Cell;
 
 use super::Leaf;
 use crate::{BoxedNode, Key};
 use std::fmt;
 
-pub struct TreeCell<K: Key, V: Clone + fmt::Debug> {
-    pub cell: Cell<Tree<K, V>>,
-}
+// pub struct TreeCell<K: Key, V: Clone + fmt::Debug> {
+//     pub cell: Cell<Tree<K, V>>,
+// }
 
-impl<K: Key, V: Clone + fmt::Debug> TreeCell<K, V> {
-    pub fn new(tree: Tree<K, V>) -> TreeCell<K, V> {
-        TreeCell {
-            cell: Cell::new(tree),
-        }
-    }
+// impl<K: Key, V: Clone + fmt::Debug> TreeCell<K, V> {
+//     pub fn new(tree: Tree<K, V>) -> TreeCell<K, V> {
+//         TreeCell {
+//             cell: Cell::new(tree),
+//         }
+//     }
 
-    pub fn tree(&self) -> Tree<K, V> {
-        self.cell.take()
-    }
-}
+//     pub fn tree(&self) -> Tree<K, V> {
+//         self.cell.take()
+//     }
+// }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Tree<K: Key, V: Clone + fmt::Debug> {
@@ -52,10 +52,10 @@ impl<K: Key, V: Clone + fmt::Debug> Tree<K, V> {
         }
     }
 
-    #[inline]
-    pub fn new_combined(boxed_node: BoxedNode<Tree<K, V>>, leaf: Leaf<K, V>) -> Tree<K, V> {
-        Tree::Combined(Box::new(Tree::BoxedNode(boxed_node)), leaf)
-    }
+    // #[inline]
+    // pub fn new_combined(boxed_node: BoxedNode<Tree<K, V>>, leaf: Leaf<K, V>) -> Tree<K, V> {
+    //     Tree::Combined(Box::new(Tree::BoxedNode(boxed_node)), leaf)
+    // }
 
     pub fn as_leaf_mut(&mut self) -> &mut Leaf<K, V> {
         match self {

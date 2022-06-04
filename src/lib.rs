@@ -259,7 +259,6 @@ impl<'a, K: Key, V: Clone + fmt::Debug> Art<K, V> {
                 }
             }
         }
-        None
     }
 
     fn root(&'a self) -> &Tree<K, V> {
