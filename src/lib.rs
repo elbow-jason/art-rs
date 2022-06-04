@@ -4,9 +4,7 @@
 //!
 //! # Examples
 //! ```
-//! use art_tree::ByteString;
-//! use art_tree::KeyBuilder;
-//! use art_tree::Art;
+//! use art_tree::{Art, Key};
 //!
 //! let mut art = Art::<u16, u16>::new();
 //! for i in 0..u8::MAX as u16 {
@@ -17,34 +15,35 @@
 //!     assert!(matches!(art.remove(&i), Some(val) if val == i));
 //! }
 //!
-//! let mut art = Art::<ByteString, u16>::new();
+//! let mut art = Art::<(u16, &str), u16>::new();
 //! for i in 0..u8::MAX as u16 {
-//!     let key = KeyBuilder::new().append(i).append(ByteString::new("abc".to_string().as_bytes())).build();
+//!     let key = (i, "abc");
 //!     art.upsert(key.clone(), i + 1);
 //!     assert!(matches!(art.get(&key), Some(val) if val == &(i + 1)));
 //! }
 //!
-//! let from_key = KeyBuilder::new().append(16u16).append(ByteString::new("abc".to_string().as_bytes())).build();
-//! let until_key = KeyBuilder::new().append(20u16).append(ByteString::new("abc".to_string().as_bytes())).build();
+//! let from_key = (16u16, "abc");
+//! let until_key = (20u16, "abc");
 //! assert_eq!(art.range(from_key..=until_key).count(), 5);
 //! assert_eq!(art.iter().count(), u8::MAX as usize);
 //! ```
 
 mod keys;
-mod node;
-mod scanner;
-
-use crate::scanner::Scanner;
-pub use keys::ByteString;
 pub use keys::*;
+
+mod node;
 use node::*;
-use std::arch::x86_64;
+
+mod tree;
+use tree::{Leaf, Tree};
+
+mod scanner;
+use scanner::Scanner;
+
 use std::cmp::Ordering;
-use std::marker::PhantomData;
 use std::ops::RangeBounds;
 use std::option::Option::Some;
-use std::rc::Rc;
-use std::{cmp, mem, ptr};
+use std::{mem, ptr};
 
 /// Adaptive Radix Tree.  
 ///
@@ -56,13 +55,13 @@ use std::{cmp, mem, ptr};
 /// - unsigned integers(u8, u16, u32, u64, u128)  
 /// - signed integers(i8, i16, i32, i64, i128)
 /// - usize
+/// - floating point numbers f32 and f64
 /// - floating point numbers through [Float32]/[Float64] types
-/// - [ByteString] for raw byte sequences. It can be used for ASCII strings(UTF-8 strings
-/// not supported now, they require additional library to convert into comparable byte sequence).
-pub struct Art<K, V> {
-    root: Option<TypedNode<K, V>>,
-    // to make type !Send and !Sync
-    _phantom: PhantomData<Rc<K>>,
+pub struct Art<K, V>
+where
+    K: Key,
+{
+    root: Tree<K, V>,
 }
 
 impl<K: Key, V> Default for Art<K, V> {
@@ -71,85 +70,86 @@ impl<K: Key, V> Default for Art<K, V> {
     }
 }
 
-impl<K: Key, V> Art<K, V> {
+impl<'a, K: Key, V> Art<K, V> {
     /// Create empty [ART] tree.
     pub fn new() -> Self {
-        Self {
-            root: None,
-            _phantom: PhantomData {},
-        }
+        Self { root: Tree::Empty }
     }
 
     /// Insert key-value pair into tree.  
     /// Return `true` if key-value successfully inserted into tree, otherwise `false` if tree
     /// already contains same key.
-    pub fn insert(&mut self, key: K, value: V) -> bool {
+    pub fn insert(&'a mut self, key: K, value: V) -> bool {
         self.insert_internal(key, value, false)
     }
 
     /// Insert key-value pair into tree.
     /// If key already exists in tree, existing value will be replaced, otherwise inserts new KV
     /// into tree.
-    pub fn upsert(&mut self, key: K, value: V) {
+    pub fn upsert(&'a mut self, key: K, value: V) {
         self.insert_internal(key, value, true);
     }
 
     fn insert_internal(&mut self, key: K, value: V, upsert: bool) -> bool {
-        let key_bytes = key.to_bytes();
+        let kb = key.to_bytes();
+        let key_bytes = kb.as_slice();
         assert!(
             !key_bytes.is_empty(),
-            "Key must have non empty byte string representation"
+            "Key must have non empty bytes representation"
         );
 
-        if self.root.is_none() {
-            self.root.replace(TypedNode::Leaf(Leaf { key, value }));
-            true
-        } else {
-            let mut node = self.root.as_mut().unwrap();
-            let mut key = key;
-            let mut offset = 0;
-            let mut val = value;
-            loop {
-                let node_ptr = node as *mut TypedNode<K, V>;
-                let res = match node {
-                    TypedNode::Leaf(_) => Ok(Self::replace_leaf(
-                        node, key, val, &key_bytes, offset, upsert,
-                    )),
-                    TypedNode::Combined(interim, leaf) => {
-                        match leaf.key.to_bytes().cmp(&key_bytes) {
-                            Ordering::Equal => {
-                                if upsert {
-                                    leaf.value = val;
-                                    Ok(true)
-                                } else {
-                                    Ok(false)
-                                }
-                            }
-                            Ordering::Greater => {
-                                // new key is 'less' than any key in this level
-                                Self::replace_combined(unsafe { &mut *node_ptr }, key, val);
+        let mut node = self.root_mut();
+        let mut key = key.clone();
+        let mut offset = 0;
+        let mut val = value;
+        loop {
+            let node_ptr = node as *mut Tree<K, V>;
+            let res = match node {
+                Tree::Empty => {
+                    let mut new_root = Tree::Leaf(Leaf { key, val });
+                    std::mem::swap(&mut new_root, &mut self.root);
+                    Ok(true)
+                }
+                Tree::Leaf(_) => Ok(Self::replace_leaf(
+                    node, key, val, key_bytes, offset, upsert,
+                )),
+                Tree::Combined(interim, leaf) => {
+                    match leaf
+                        .key
+                        .to_bytes()
+                        .as_slice()
+                        .cmp(key.to_bytes().as_slice())
+                    {
+                        Ordering::Equal => {
+                            if upsert {
+                                leaf.val = val;
                                 Ok(true)
+                            } else {
+                                Ok(false)
                             }
-                            _ => Err(InsertOp {
-                                node: interim.as_mut(),
-                                key_byte_offset: offset,
-                                key,
-                                value: val,
-                            }),
                         }
+                        Ordering::Greater => {
+                            // new key is 'less' than any key in this level
+                            Self::replace_combined(unsafe { &mut *node_ptr }, key, val);
+                            Ok(true)
+                        }
+                        _ => Err(InsertOp {
+                            node: interim.as_mut(),
+                            key_byte_offset: offset,
+                            key,
+                            value: val,
+                        }),
                     }
-                    TypedNode::Interim(_) => {
-                        Self::interim_insert(node, key, val, &key_bytes, offset)
-                    }
-                };
-                match res {
-                    Ok(is_inserted) => return is_inserted,
-                    Err(op) => {
-                        node = op.node;
-                        offset = op.key_byte_offset;
-                        key = op.key;
-                        val = op.value;
-                    }
+                }
+                Tree::BoxedNode(_) => Self::interim_insert(node, key, val, offset),
+            };
+            match res {
+                Ok(is_inserted) => return is_inserted,
+                Err(op) => {
+                    node = op.node;
+                    offset = op.key_byte_offset;
+                    key = op.key;
+                    val = op.value;
                 }
             }
         }
@@ -157,104 +157,102 @@ impl<K: Key, V> Art<K, V> {
 
     /// Remove value associated with key.  
     /// Returns `Some(V)` if key found in tree, otherwise `None`.
-    pub fn remove(&mut self, key: &K) -> Option<V> {
-        if let Some(root) = &mut self.root {
-            let key_bytes_vec = key.to_bytes();
-            let mut key_bytes = key_bytes_vec.as_slice();
-            let key_ro_buffer = key_bytes;
-            let mut parent_link = 0;
-            let mut parent: Option<&mut BoxedNode<TypedNode<K, V>>> = None;
-            let mut node_ptr = root as *mut TypedNode<K, V>;
-            loop {
-                let x: &mut TypedNode<K, V> = unsafe { &mut *node_ptr };
-                match x {
-                    TypedNode::Leaf(leaf) => {
-                        // TODO: merge nodes if parent contains only link to child node
-                        return if key_ro_buffer == leaf.key.to_bytes() {
-                            if let Some(p) = parent {
-                                if p.should_shrink() {
-                                    unsafe {
-                                        let new_node = ptr::read(p).shrink();
-                                        ptr::write(p, new_node);
-                                    };
-                                }
-                                Some(p.remove(parent_link).unwrap().take_leaf().value)
-                            } else {
-                                Some(
-                                    mem::replace(&mut self.root, None)
-                                        .unwrap()
-                                        .take_leaf()
-                                        .value,
-                                )
+    pub fn remove(&mut self, key: &'a K) -> Option<V> {
+        if self.root.is_empty() {
+            return None;
+        }
+        let root = &mut self.root;
+        let kb = key.to_bytes();
+        let key_bytes_vec = kb.as_slice();
+        let mut key_bytes = key_bytes_vec.as_ref();
+        let key_ro_buffer = key_bytes;
+        let mut parent_link = 0;
+        let mut parent: Option<&mut BoxedNode<Tree<K, V>>> = None;
+        let mut node_ptr = root as *mut Tree<K, V>;
+        loop {
+            match unsafe { &mut *node_ptr } {
+                Tree::Empty => return None,
+                Tree::Leaf(leaf) => {
+                    // TODO: merge nodes if parent contains only link to child node
+                    return if key_ro_buffer == leaf.key.to_bytes().as_slice() {
+                        if let Some(p) = parent {
+                            if p.should_shrink() {
+                                unsafe {
+                                    let new_node = ptr::read(p).shrink();
+                                    ptr::write(p, new_node);
+                                };
                             }
+                            Some(p.remove(parent_link).unwrap().take_leaf().val)
                         } else {
-                            None
-                        };
-                    }
-                    TypedNode::Interim(interim) => {
-                        if let Some((next_node, rem_key_bytes, key)) =
-                            Self::find_in_interim_mut(interim, key_bytes)
-                        {
-                            node_ptr = next_node as *mut TypedNode<K, V>;
-                            parent = Some(interim);
-                            parent_link = key;
-                            key_bytes = rem_key_bytes;
-                        } else {
-                            return None;
+                            Some(mem::replace(&mut self.root, Tree::Empty).take_leaf().val)
                         }
+                    } else {
+                        None
+                    };
+                }
+                Tree::BoxedNode(interim) => {
+                    if let Some((next_node, rem_key_bytes, key)) =
+                        Self::find_in_interim_mut(interim, key_bytes)
+                    {
+                        node_ptr = next_node as *mut Tree<K, V>;
+                        parent = Some(interim);
+                        parent_link = key;
+                        key_bytes = rem_key_bytes;
+                    } else {
+                        return None;
                     }
-                    TypedNode::Combined(interim, leaf) => {
-                        if key_ro_buffer == leaf.key.to_bytes() {
-                            let leaf = unsafe { ptr::read(leaf) };
-                            unsafe { ptr::write(node_ptr, *ptr::read(interim)) };
-                            return Some(leaf.value);
-                        } else {
-                            node_ptr = interim.as_mut() as *mut TypedNode<K, V>;
-                        }
+                }
+                Tree::Combined(interim, leaf) => {
+                    if key_ro_buffer == leaf.key.to_bytes().as_slice() {
+                        let leaf = unsafe { ptr::read(leaf) };
+                        unsafe { ptr::write(node_ptr, *ptr::read(interim)) };
+                        return Some(leaf.val);
+                    } else {
+                        node_ptr = interim.as_mut() as *mut Tree<K, V>;
                     }
                 }
             }
-        } else {
-            None
         }
     }
 
     /// Get value associated with key.  
     /// Returns `Some(V)` if key found in tree, otherwise `None`.
     pub fn get(&self, key: &K) -> Option<&V> {
-        let key_vec = key.to_bytes();
+        let kb = key.to_bytes();
+        let key_vec = kb.as_slice();
         assert!(
             !key_vec.is_empty(),
             "Key must have non empty byte string representation"
         );
 
-        let mut node = self.root.as_ref();
-        let mut key_bytes = key_vec.as_slice();
+        let mut node = self.root();
+        let mut key_bytes = key_vec.as_ref();
         let key_ro_buffer = key_bytes;
-        while let Some(typed_node) = node {
-            match typed_node {
-                TypedNode::Leaf(leaf) => {
-                    return if leaf.key.to_bytes() == key_ro_buffer {
-                        Some(&leaf.value)
+        loop {
+            match node {
+                Tree::Empty => return None,
+                Tree::Leaf(leaf) => {
+                    return if leaf.key.to_bytes().as_slice() == key_ro_buffer {
+                        Some(&leaf.val)
                     } else {
                         None
                     }
                 }
-                TypedNode::Interim(interim) => {
+                Tree::BoxedNode(interim) => {
                     if let Some((next_node, rem_key_bytes, _)) =
                         Self::find_in_interim(interim, key_bytes)
                     {
-                        node = Some(next_node);
+                        node = next_node;
                         key_bytes = rem_key_bytes;
                     } else {
-                        node = None;
+                        node = &Tree::Empty;
                     }
                 }
-                TypedNode::Combined(interim, leaf) => {
-                    if key_ro_buffer == leaf.key.to_bytes() {
-                        return Some(&leaf.value);
+                Tree::Combined(interim, leaf) => {
+                    if *key_ro_buffer == *leaf.key.to_bytes().as_slice() {
+                        return Some(&leaf.val);
                     } else {
-                        node = Some(interim);
+                        node = interim;
                     }
                 }
             }
@@ -262,20 +260,27 @@ impl<K: Key, V> Art<K, V> {
         None
     }
 
+    fn root(&'a self) -> &Tree<K, V> {
+        &self.root
+    }
+
+    fn root_mut(&mut self) -> &mut Tree<K, V> {
+        &mut self.root
+    }
+
     /// Execute tree range scan.  
     pub fn range(&self, range: impl RangeBounds<K>) -> impl DoubleEndedIterator<Item = (&K, &V)>
     where
-        K: Ord,
+        K: Key + Ord,
     {
-        if let Some(root) = self.root.as_ref() {
-            Scanner::new(root, range)
-        } else {
-            Scanner::empty(range)
+        match self.root() {
+            Tree::Empty => Scanner::empty(range),
+            root => Scanner::new(root, range),
         }
     }
 
     /// Returns tree iterator.
-    pub fn iter(&self) -> impl DoubleEndedIterator<Item = (&K, &V)>
+    pub fn iter(&'a self) -> impl DoubleEndedIterator<Item = (&K, &V)>
     where
         K: Ord,
     {
@@ -283,21 +288,21 @@ impl<K: Key, V> Art<K, V> {
     }
 
     fn find_in_interim<'n, 'k>(
-        interim: &'n BoxedNode<TypedNode<K, V>>,
+        interim: &'n BoxedNode<Tree<K, V>>,
         key_bytes: &'k [u8],
-    ) -> Option<(&'n TypedNode<K, V>, &'k [u8], u8)> {
+    ) -> Option<(&'a Tree<K, V>, &'k [u8], u8)> {
         let node = unsafe {
             #[allow(clippy::cast_ref_to_mut)]
-            &mut *(interim as *const BoxedNode<TypedNode<K, V>> as *mut BoxedNode<TypedNode<K, V>>)
+            &mut *(interim as *const BoxedNode<Tree<K, V>> as *mut BoxedNode<Tree<K, V>>)
         };
-        Self::find_in_interim_mut(node, key_bytes)
-            .map(|(node, bytes, key)| (unsafe { &*(node as *const TypedNode<K, V>) }, bytes, key))
+        Self::find_in_interim_mut(node, key_bytes.as_ref())
+            .map(|(node, bytes, key)| (unsafe { &*(node as *const Tree<K, V>) }, bytes, key))
     }
 
     fn find_in_interim_mut<'n, 'k>(
-        interim: &'n mut BoxedNode<TypedNode<K, V>>,
+        interim: &'n mut BoxedNode<Tree<K, V>>,
         key_bytes: &'k [u8],
-    ) -> Option<(&'n mut TypedNode<K, V>, &'k [u8], u8)> {
+    ) -> Option<(&'n mut Tree<K, V>, &'k [u8], u8)> {
         let prefix = interim.prefix().to_vec();
         if key_bytes.len() == prefix.len() || common_prefix_len(&prefix, key_bytes) != prefix.len()
         {
@@ -321,14 +326,14 @@ impl<K: Key, V> Art<K, V> {
         }
     }
 
-    fn replace_combined(node: &mut TypedNode<K, V>, key: K, value: V) {
+    fn replace_combined(node: &mut Tree<K, V>, key: K, value: V) {
         let existing_node = unsafe { ptr::read(node) };
-        let new_node = TypedNode::Combined(Box::new(existing_node), Leaf::new(key, value));
+        let new_node = Tree::Combined(Box::new(existing_node), Leaf::new(key, value));
         unsafe { ptr::write(node, new_node) };
     }
 
     fn replace_leaf(
-        node: &mut TypedNode<K, V>,
+        node: &'a mut Tree<K, V>,
         key: K,
         value: V,
         key_bytes: &[u8],
@@ -336,16 +341,17 @@ impl<K: Key, V> Art<K, V> {
         upsert: bool,
     ) -> bool {
         let leaf = node.as_leaf_mut();
-        if key_bytes == leaf.key.to_bytes() {
+        if *key_bytes == *leaf.key.to_bytes().as_slice() {
             return if upsert {
-                leaf.value = value;
+                leaf.val = value;
                 true
             } else {
                 false
             };
         }
 
-        let leaf_key_bytes = leaf.key.to_bytes();
+        let leaf_kb = leaf.key.to_bytes();
+        let leaf_key_bytes = leaf_kb.as_slice();
         // skip bytes which covered by upper levels of tree
         let leaf_key = &leaf_key_bytes[key_start_offset..];
         let key_bytes = &key_bytes[key_start_offset..];
@@ -362,14 +368,14 @@ impl<K: Key, V> Art<K, V> {
             // in this case we replace existing leaf by new 'combined' node which will point to
             // existing leaf and new interim node(which will hold new KV).
             let mut new_interim = FlatNode::new(prefix);
-            let err = new_interim.insert(key_bytes[0], TypedNode::Leaf(Leaf::new(key, value)));
-            debug_assert!(err.is_none());
+            let err = new_interim.insert(key_bytes[0], Tree::Leaf(Leaf::new(key, value)));
+            debug_assert!(err.is_ok());
 
             // safely move out value from node holder because
             // later we will override it without drop
             let existing_leaf = unsafe { ptr::read(leaf) };
-            TypedNode::Combined(
-                Box::new(TypedNode::Interim(BoxedNode::Size4(Box::new(new_interim)))),
+            Tree::Combined(
+                Box::new(Tree::BoxedNode(BoxedNode::Size4(Box::new(new_interim)))),
                 existing_leaf,
             )
         } else if key_bytes.is_empty() {
@@ -381,11 +387,11 @@ impl<K: Key, V> Art<K, V> {
             // safely move out value from node holder because
             // later we will override it without drop
             let existing_leaf = unsafe { ptr::read(leaf) };
-            let err = new_interim.insert(leaf_key[0], TypedNode::Leaf(existing_leaf));
-            debug_assert!(err.is_none());
+            let err = new_interim.insert(leaf_key[0], Tree::Leaf(existing_leaf));
+            debug_assert!(err.is_ok());
 
-            TypedNode::Combined(
-                Box::new(TypedNode::Interim(BoxedNode::Size4(Box::new(new_interim)))),
+            Tree::Combined(
+                Box::new(Tree::BoxedNode(BoxedNode::Size4(Box::new(new_interim)))),
                 Leaf::new(key, value),
             )
         } else {
@@ -396,32 +402,31 @@ impl<K: Key, V> Art<K, V> {
             // later we will override it without drop
             let leaf = unsafe { ptr::read(leaf) };
             let mut new_interim = FlatNode::new(prefix);
-            let err = new_interim.insert(key_bytes[0], TypedNode::Leaf(Leaf::new(key, value)));
-            debug_assert!(err.is_none());
-            let err = new_interim.insert(leaf_key[0], TypedNode::Leaf(leaf));
-            debug_assert!(err.is_none());
-            TypedNode::Interim(BoxedNode::Size4(Box::new(new_interim)))
+            let err = new_interim.insert(key_bytes[0], Tree::Leaf(Leaf::new(key, value)));
+            debug_assert!(err.is_ok());
+            let err = new_interim.insert(leaf_key[0], Tree::Leaf(leaf));
+            debug_assert!(err.is_ok());
+            Tree::BoxedNode(BoxedNode::Size4(Box::new(new_interim)))
         };
         unsafe { ptr::write(node, new_interim) };
         true
     }
 
-    fn interim_insert<'n>(
-        node: &'n mut TypedNode<K, V>,
+    fn interim_insert(
+        node: &'a mut Tree<K, V>,
         key: K,
         value: V,
-        key_bytes: &[u8],
         key_start_offset: usize,
-    ) -> Result<bool, InsertOp<'n, K, V>> {
-        let node_ptr = node as *mut TypedNode<K, V>;
+    ) -> Result<bool, InsertOp<'a, K, V>> {
+        let node_ptr = node as *mut Tree<K, V>;
         let interim = node.as_interim_mut();
-        if key_bytes.len() <= key_start_offset {
+        if key.to_bytes().as_slice().len() <= key_start_offset {
             // no more bytes in key to go deeper inside the tree => replace interim by combined node
             // which will contains link to existing interim and leaf node with new KV.
             unsafe {
                 let existing_interim = ptr::read(interim);
-                let new_interim = TypedNode::Combined(
-                    Box::new(TypedNode::Interim(existing_interim)),
+                let new_interim = Tree::Combined(
+                    Box::new(Tree::BoxedNode(existing_interim)),
                     Leaf::new(key, value),
                 );
                 ptr::write(node_ptr, new_interim)
@@ -429,7 +434,8 @@ impl<K: Key, V> Art<K, V> {
             return Ok(true);
         }
 
-        let key_bytes = &key_bytes[key_start_offset..];
+        let kb = key.to_bytes();
+        let key_bytes = &kb.as_slice()[key_start_offset..];
         let prefix = interim.prefix();
         let prefix_size = common_prefix_len(prefix, key_bytes);
 
@@ -438,8 +444,8 @@ impl<K: Key, V> Art<K, V> {
             // node which will contain new key and link to existing values of interim
             unsafe {
                 let existing_interim = ptr::read(interim);
-                let new_node = TypedNode::Combined(
-                    Box::new(TypedNode::Interim(existing_interim)),
+                let new_node = Tree::Combined(
+                    Box::new(Tree::BoxedNode(existing_interim)),
                     Leaf::new(key, value),
                 );
                 ptr::write(node_ptr, new_node)
@@ -451,11 +457,8 @@ impl<K: Key, V> Art<K, V> {
             // used as prefix for new interim node and this interim will point to new leaf(with passed
             // KV) and previous interim(with prefix "abc").
             let mut new_interim = FlatNode::new(&prefix[..prefix_size]);
-            let res = new_interim.insert(
-                key_bytes[prefix_size],
-                TypedNode::Leaf(Leaf::new(key, value)),
-            );
-            debug_assert!(res.is_none());
+            let res = new_interim.insert(key_bytes[prefix_size], Tree::Leaf(Leaf::new(key, value)));
+            debug_assert!(res.is_ok());
             let mut interim = unsafe { ptr::read(interim) };
             let interim_key = prefix[prefix_size];
             // update prefix of existing interim to remaining part of old prefix.
@@ -466,17 +469,17 @@ impl<K: Key, V> Art<K, V> {
             } else {
                 interim.set_prefix(&[]);
             }
-            let res = new_interim.insert(interim_key, TypedNode::Interim(interim));
-            debug_assert!(res.is_none());
+            let res = new_interim.insert(interim_key, Tree::BoxedNode(interim));
+            debug_assert!(res.is_ok());
             unsafe {
                 ptr::write(
                     node_ptr,
-                    TypedNode::Interim(BoxedNode::Size4(Box::new(new_interim))),
+                    Tree::BoxedNode(BoxedNode::Size4(Box::new(new_interim))),
                 )
             };
             Ok(true)
         } else {
-            let interim_ptr = unsafe { &mut *(interim as *mut BoxedNode<TypedNode<K, V>>) };
+            let interim_ptr = unsafe { &mut *(interim as *mut BoxedNode<Tree<K, V>>) };
             if let Some(next_node) = interim.get_mut(key_bytes[prefix_size]) {
                 // interim already contains node with same 'next byte', we will try to insert on
                 // the next level of tree. Existing node may be:
@@ -490,45 +493,31 @@ impl<K: Key, V> Art<K, V> {
                 })
             } else {
                 // we find interim node which should contain new KV
-                let leaf = TypedNode::Leaf(Leaf::new(key, value));
+                let leaf = Tree::Leaf(Leaf::new(key.clone(), value));
                 match interim_ptr.insert(key_bytes[prefix_size], leaf) {
-                    Some(InsertError::Overflow(val)) => {
+                    InsertStatus::Overflow(val) => {
                         let interim = unsafe { ptr::read(interim_ptr) };
                         let mut new_interim = interim.expand();
                         let err = new_interim.insert(key_bytes[prefix_size], val);
                         debug_assert!(
-                            err.is_none(),
+                            err.is_ok(),
                             "Insert failed after node expand (unexpected duplicate key)"
                         );
-                        unsafe { ptr::write(node_ptr, TypedNode::Interim(new_interim)) }
+                        unsafe { ptr::write(node_ptr, Tree::BoxedNode(new_interim)) }
                         Ok(true)
                     }
-                    Some(InsertError::DuplicateKey) => panic!("Should not happen"),
-                    None => Ok(true),
+                    InsertStatus::DuplicateKey => unreachable!(),
+                    InsertStatus::Ok => Ok(true),
                 }
             }
         }
     }
 }
 
-fn common_prefix_len(vec1: &[u8], vec2: &[u8]) -> usize {
-    // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    // {
-    //     let mut len = 0;
-    //     let mut vec_len = cmp::min(vec1.len(), vec2.len());
-    //     while len < vec_len {
-    //         unsafe {
-    //             let val =
-    //                 ((x86_64::_tzcnt_u32((vec1[len] ^ vec2[len]) as u32) & 0x20) >> 5) as usize;
-    //             vec_len *= val;
-    //             len += val;
-    //         }
-    //     }
-    //     return len;
-    // }
+fn common_prefix_len(k1: &[u8], k2: &[u8]) -> usize {
     let mut len = 0;
-    for i in 0..cmp::min(vec1.len(), vec2.len()) {
-        if vec1[i] != vec2[i] {
+    for (b1, b2) in k1.iter().zip(k2.iter()) {
+        if b1 != b2 {
             break;
         }
         len += 1;
@@ -537,34 +526,158 @@ fn common_prefix_len(vec1: &[u8], vec2: &[u8]) -> usize {
 }
 
 struct InsertOp<'n, K, V> {
-    node: &'n mut TypedNode<K, V>,
+    node: &'n mut Tree<K, V>,
     // offset of byte in key which should be used to insert KV pair inside `node`
     key_byte_offset: usize,
     key: K,
     value: V,
 }
 
+#[test]
+fn art_with_no_items() {
+    let a: Art<i32, i32> = Art::new();
+    assert!(a.root.is_empty());
+}
+
+#[test]
+fn art_with_one_items() {
+    let mut a: Art<i32, i32> = Art::new();
+    assert_eq!(a.insert(1, 2), true);
+    let root = a.root;
+    let expected = Leaf::new(1, 2);
+    let leaf = root.take_leaf();
+    assert_eq!(leaf.key, expected.key);
+    assert_eq!(leaf.val, expected.val);
+}
+
+#[test]
+fn art_with_two_items_with_common_prefix() {
+    let mut a: Art<u32, u32> = Art::new();
+    assert!(a.root.is_empty());
+    assert_eq!(a.insert(1, 2), true);
+    assert!(&a.root.is_leaf());
+    assert_eq!(a.insert(3, 4), true);
+    let mut root = a.root;
+    let bnode = root.as_interim_mut();
+    assert_eq!(bnode.node_size(), 4);
+    assert_eq!(bnode.prefix(), &vec![0, 0, 0]);
+    let mut node_it: NodeIter<Tree<u32, u32>> = bnode.iter();
+    let one = node_it.next().unwrap();
+    assert!(one.is_leaf());
+    assert_eq!(one.leaf(), &Leaf::new(1u32, 2));
+    let two = node_it.next().unwrap();
+    assert!(two.is_leaf());
+    assert_eq!(two.leaf(), &Leaf::new(3u32, 4));
+    assert!(node_it.next().is_none());
+}
+
+#[test]
+fn art_with_two_items_with_no_common_prefix() {
+    let mut a: Art<i32, i32> = Art::new();
+    assert_eq!(a.insert(1, 2), true);
+    assert_eq!(a.insert(-1, -2), true);
+    let mut root = a.root;
+    let bnode = root.as_interim_mut();
+    assert_eq!(bnode.node_size(), 4);
+    assert_eq!(bnode.prefix(), &vec![]);
+    let mut node_it: NodeIter<Tree<i32, i32>> = bnode.iter();
+    let one = node_it.next().unwrap();
+    assert!(one.is_leaf());
+    assert_eq!(one.leaf(), &Leaf::new(-1i32, -2));
+    let two = node_it.next().unwrap();
+    assert!(two.is_leaf());
+    assert_eq!(two.leaf(), &Leaf::new(1i32, 2));
+    assert!(node_it.next().is_none());
+}
+
+#[test]
+fn art_with_2_different_length_string_keys() {
+    let mut a: Art<String, i32> = Art::new();
+    let k1 = "aaa".to_owned();
+    let k2 = "bbbbb".to_owned();
+    // inserting 1 turns root into a leaf
+    assert_eq!(a.insert(k1.clone(), 2), true);
+    assert!(&a.root.is_leaf());
+    // inserting another turns root into an interim
+    assert_eq!(a.insert(k2.clone(), -2), true);
+    assert!(&a.root.is_interim());
+
+    let mut root = a.root;
+    let bnode = root.as_interim_mut();
+    assert_eq!(bnode.node_size(), 4);
+    assert_eq!(bnode.prefix(), &[]);
+    let mut node_it: NodeIter<Tree<String, i32>> = bnode.iter();
+    let one = node_it.next().unwrap();
+    assert!(one.is_leaf());
+    assert_eq!(one.leaf(), &Leaf::new(k1.clone(), -2));
+    let two = node_it.next().unwrap();
+    assert!(two.is_leaf());
+    assert_eq!(two.leaf(), &Leaf::new(k2.clone(), 2));
+    assert!(node_it.next().is_none());
+}
+
+#[test]
+fn art_with_3_string_keys_with_2_common_prefix() {
+    let mut a: Art<String, i32> = Art::new();
+    let k1 = "aaa".to_owned();
+    let k2 = "bbbbb".to_owned();
+    let k3 = "bbbcc".to_owned();
+    // inserting 1 turns root into a leaf
+    assert_eq!(a.insert(k1.clone(), 2), true);
+    assert!(&a.root.is_leaf());
+    // inserting another turns root into an interim
+    assert_eq!(a.insert(k2.clone(), -2), true);
+    assert!(&a.root.is_interim());
+
+    assert_eq!(a.insert(k3.clone(), -16), true);
+    assert!(&a.root.is_interim());
+
+    let mut root = a.root;
+    let bnode = root.as_interim_mut();
+    assert_eq!(bnode.node_size(), 4);
+    assert_eq!(bnode.prefix(), &[]);
+    let mut node_it: NodeIter<Tree<String, i32>> = bnode.iter();
+    let one = node_it.next().unwrap();
+    assert!(one.is_leaf());
+    assert_eq!(one.leaf(), &Leaf::new(k1.clone(), -2));
+    let two = node_it.next().unwrap();
+    assert!(two.is_interim());
+    let two_inter = two.interim();
+    assert_eq!(two_inter.prefix(), &vec![98, 98]);
+    assert!(node_it.next().is_none());
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::{Art, ByteString, Float32, Float64, KeyBuilder};
+    use crate::{Art, Float32, Float64, Key};
     use rand::prelude::IteratorRandom;
     use rand::seq::SliceRandom;
     use rand::{thread_rng, Rng};
     use std::collections::HashSet;
+
+    fn compound_key<A: Key, B: Key>(a: A, b: B) -> Vec<u8> {
+        let mut key = vec_key(a);
+        key.extend(b.to_bytes().as_slice());
+        key
+    }
+
+    fn vec_key<K: Key>(k: K) -> Vec<u8> {
+        k.to_bytes().as_slice().to_vec()
+    }
 
     #[test]
     fn seq_insert_combined_key() {
         let mut art = Art::new();
         for i in 0..=u8::MAX {
             for j in i8::MIN..=i8::MAX {
-                let key = KeyBuilder::new().append(i).append(j).build();
+                let key = compound_key(i, j);
                 assert!(art.insert(key, i.to_string()), "{}", i);
             }
         }
 
         for i in 0..=u8::MAX {
             for j in i8::MIN..=i8::MAX {
-                let key = KeyBuilder::new().append(i).append(j).build();
+                let key = compound_key(i, j);
                 assert!(matches!(art.get(&key), Some(val) if val == &i.to_string()));
             }
         }
@@ -858,14 +971,14 @@ mod tests {
         let mut art = Art::new();
         for i in 0..=u8::MAX {
             for j in i8::MIN..=i8::MAX {
-                let key = KeyBuilder::new().append(i).append(j).build();
+                let key = compound_key(i, j);
                 assert!(art.insert(key, i.to_string()), "{}", i);
             }
         }
 
         for i in 0..=u8::MAX {
             for j in i8::MIN..=i8::MAX {
-                let key = KeyBuilder::new().append(i).append(j).build();
+                let key = compound_key(i, j);
                 assert!(matches!(art.remove(&key), Some(val) if val == i.to_string()));
                 assert!(matches!(art.get(&key), None));
             }
@@ -1068,45 +1181,47 @@ mod tests {
     fn modifications_with_seq_keys_with_increasing_size() {
         let mut art = Art::new();
         for i in 0..=u8::MAX {
-            let key = KeyBuilder::new().append(i).build();
+            let key = vec_key(i);
             assert!(art.insert(key.clone(), i.to_string()), "{}", i);
             assert!(matches!(art.get(&key), Some(val) if val == &i.to_string()));
         }
         for i in 0..=u8::MAX {
-            let key = KeyBuilder::new().append(i).build();
+            let key = vec_key(i);
             assert!(matches!(art.get(&key), Some(val) if val == &i.to_string()));
         }
 
         for i in u8::MAX as u16 + 1..=u16::MAX {
-            let key = KeyBuilder::new().append(i).build();
+            let key = vec_key(i);
             assert!(art.insert(key.clone(), i.to_string()), "{}", i);
             assert!(matches!(art.get(&key), Some(val) if val == &i.to_string()));
         }
         for i in u8::MAX as u16 + 1..=u16::MAX {
-            let key = KeyBuilder::new().append(i).build();
+            let key = vec_key(i);
             assert!(matches!(art.get(&key), Some(val) if val == &i.to_string()));
         }
 
         for i in u16::MAX as u32 + 1..=(1 << 21) as u32 {
-            let key = KeyBuilder::new().append(i).build();
+            let key = vec_key(i);
             assert!(art.insert(key.clone(), i.to_string()), "{}", i);
             assert!(matches!(art.get(&key), Some(val) if val == &i.to_string()));
         }
         for i in u16::MAX as u32 + 1..=(1 << 21) as u32 {
-            let key = KeyBuilder::new().append(i).build();
+            let key = vec_key(i);
             assert!(matches!(art.get(&key), Some(val) if val == &i.to_string()));
         }
 
         for i in 0..=u8::MAX {
-            let key = KeyBuilder::new().append(i).build();
+            let key = vec_key(i);
             assert!(matches!(art.remove(&key), Some(val) if val == i.to_string()));
         }
+
         for i in u8::MAX as u16 + 1..=u16::MAX {
-            let key = KeyBuilder::new().append(i).build();
+            let key = vec_key(i);
             assert!(matches!(art.remove(&key), Some(val) if val == i.to_string()));
         }
+
         for i in u16::MAX as u32 + 1..=(1 << 21) as u32 {
-            let key = KeyBuilder::new().append(i).build();
+            let key = vec_key(i);
             assert!(matches!(art.remove(&key), Some(val) if val == i.to_string()));
         }
     }
@@ -1115,12 +1230,9 @@ mod tests {
     fn insert_with_long_prefix() {
         let mut art = Art::new();
         long_prefix_test(&mut art, |art, key| {
-            assert!(
-                art.insert(ByteString::new(key.as_bytes()), key.clone()),
-                "{}",
-                key
-            );
-            assert!(matches!(art.get(&ByteString::new(key.as_bytes())), Some(val) if val == &key));
+            let vk = vec_key(key.clone());
+            assert!(art.insert(vk.clone(), key.clone()), "{}", key);
+            assert!(matches!(art.get(&vk), Some(val) if val == &key));
         });
     }
 
@@ -1129,13 +1241,14 @@ mod tests {
         let mut art = Art::new();
         let mut existing = HashSet::new();
         long_prefix_test(&mut art, |art, key| {
+            // let vk = vec_key(key.clone());
             if thread_rng().gen_bool(0.3) && !existing.is_empty() {
                 let key: &String = existing.iter().choose(&mut thread_rng()).unwrap();
                 let key = key.clone();
-                art.remove(&ByteString::new(key.as_bytes())).unwrap();
+                art.remove(&key[..].as_bytes().to_vec()).unwrap();
                 existing.remove(&key);
             } else {
-                art.upsert(ByteString::new(key.as_bytes()), key.clone());
+                art.upsert(key.as_bytes().to_vec(), key.clone());
                 existing.insert(key);
             }
         });
@@ -1151,16 +1264,18 @@ mod tests {
         let mut art = Art::new();
         let mut existing = HashSet::new();
         long_prefix_test(&mut art, |art, key| {
+            let vk = vec_key(key.clone());
             if existing.insert(key.clone()) {
-                art.insert(ByteString::new(key.as_bytes()), key.clone());
+                art.insert(vk, key);
             }
         });
 
         for (i, key) in existing.iter().enumerate() {
             let new_val = i.to_string();
-            art.upsert(ByteString::new(key.as_bytes()), new_val.clone());
+            let vk = vec_key(key.clone());
+            art.upsert(vk.clone(), new_val.clone());
             assert!(matches!(
-                art.get(&ByteString::new(key.as_bytes())),
+                art.get(&vk),
                 Some(v) if v == &new_val
             ));
         }
@@ -1171,15 +1286,16 @@ mod tests {
         let mut art = Art::new();
         let mut existing = HashSet::new();
         long_prefix_test(&mut art, |art, key| {
+            let vk = vec_key(key.clone());
             if existing.insert(key.clone()) {
                 assert!(
-                    art.insert(ByteString::new(key.as_bytes()), key.clone()),
+                    art.insert(vk, key.clone()),
                     "{} not exist in tree, but insertion failed",
                     key
                 );
             } else {
                 assert!(
-                    !art.insert(ByteString::new(key.as_bytes()), key.clone()),
+                    !art.insert(vk, key.clone()),
                     "{} already exists but inserted again",
                     key
                 );
@@ -1192,26 +1308,24 @@ mod tests {
         let mut art = Art::new();
         let mut existing = HashSet::new();
         long_prefix_test(&mut art, |art, key| {
-            assert!(
-                art.insert(ByteString::new(key.as_bytes()), key.clone()),
-                "{}",
-                key
-            );
+            let vk = vec_key(key.clone());
+            assert!(art.insert(vk, key.clone()), "{}", key);
             existing.insert(key);
         });
 
         for key in existing {
+            let vk = vec_key(key.clone());
             assert!(
-                matches!(art.remove(&ByteString::new(key.as_bytes())), Some(val) if val == key),
+                matches!(art.remove(&vk), Some(val) if val == key.clone()),
                 "{}",
                 key
             );
-            assert!(matches!(art.get(&ByteString::new(key.as_bytes())), None));
+            assert!(matches!(art.get(&vk), None));
         }
     }
 
-    fn long_prefix_test<F: FnMut(&mut Art<ByteString, String>, String)>(
-        art: &mut Art<ByteString, String>,
+    fn long_prefix_test<F: FnMut(&mut Art<Vec<u8>, String>, String)>(
+        art: &mut Art<Vec<u8>, String>,
         mut test_fn: F,
     ) {
         let mut existing = HashSet::new();

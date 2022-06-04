@@ -1,8 +1,17 @@
 use crate::node::*;
-use crate::{Key, Leaf, TypedNode};
+use crate::{Key, Leaf, Tree};
 use std::collections::{BinaryHeap, VecDeque};
-use std::ops::Bound;
-use std::ops::RangeBounds;
+use std::ops::{Bound, RangeBounds};
+
+// pub struct Scanner2<'a, K, V>
+// where
+//     K: Key + Ord,
+// {
+//     lo_key: Vec<u8>,
+//     hi_key: Vec<u8>,
+//     key: Vec<u8>,
+//     iters: Vec<NodeIter<'a, Tree<K, V>>>,
+// }
 
 pub struct Scanner<'a, K, V, R> {
     forward: ScannerState<'a, K, V>,
@@ -13,18 +22,18 @@ pub struct Scanner<'a, K, V, R> {
 }
 
 struct ScannerState<'a, K, V> {
-    interims: Vec<NodeIter<'a, TypedNode<K, V>>>,
+    interims: Vec<NodeIter<'a, Tree<K, V>>>,
     leafs: VecDeque<&'a Leaf<K, V>>,
 }
 
 struct BackwardScannerState<'a, K, V> {
-    interims: Vec<NodeIter<'a, TypedNode<K, V>>>,
+    interims: Vec<NodeIter<'a, Tree<K, V>>>,
     leafs: BinaryHeap<&'a Leaf<K, V>>,
 }
 
 impl<'a, K, V, R> Scanner<'a, K, V, R>
 where
-    K: Ord,
+    K: Key + Ord,
     R: RangeBounds<K>,
 {
     pub(crate) fn empty(range: R) -> Self {
@@ -37,7 +46,7 @@ where
         }
     }
 
-    pub(crate) fn new(node: &'a TypedNode<K, V>, range: R) -> Self
+    pub(crate) fn new(node: &'a Tree<K, V>, range: R) -> Self
     where
         R: RangeBounds<K>,
     {
@@ -62,7 +71,7 @@ where
         }
     }
 
-    fn forward_scan<R>(node: &'a TypedNode<K, V>, range: &R) -> Self
+    fn forward_scan<R>(node: &'a Tree<K, V>, range: &R) -> Self
     where
         R: RangeBounds<K>,
     {
@@ -71,17 +80,18 @@ where
         let mut interims = Vec::new();
         loop {
             match node {
-                TypedNode::Leaf(leaf) => {
+                Tree::Empty => break,
+                Tree::Leaf(leaf) => {
                     if range.contains(&leaf.key) {
                         leafs.push_back(leaf);
                     }
                     break;
                 }
-                TypedNode::Interim(interim) => {
-                    interims.push(interim.iter());
+                Tree::BoxedNode(boxed_node) => {
+                    interims.push(boxed_node.iter());
                     break;
                 }
-                TypedNode::Combined(interim, leaf) => {
+                Tree::Combined(interim, leaf) => {
                     node = interim;
                     if range.contains(&leaf.key) {
                         leafs.push_back(leaf);
@@ -105,7 +115,7 @@ where
         }
     }
 
-    fn backward_scan<R>(node: &'a TypedNode<K, V>, range: &R) -> Self
+    fn backward_scan<R>(node: &'a Tree<K, V>, range: &R) -> Self
     where
         R: RangeBounds<K>,
     {
@@ -114,17 +124,18 @@ where
         let mut interims = Vec::new();
         loop {
             match node {
-                TypedNode::Leaf(leaf) => {
+                Tree::Empty => break,
+                Tree::Leaf(leaf) => {
                     if range.contains(&leaf.key) {
                         leafs.push(leaf);
                     }
                     break;
                 }
-                TypedNode::Interim(interim) => {
-                    interims.push(interim.iter());
+                Tree::BoxedNode(boxed_node) => {
+                    interims.push(boxed_node.iter());
                     break;
                 }
-                TypedNode::Combined(interim, leaf) => {
+                Tree::Combined(interim, leaf) => {
                     node = interim;
                     if range.contains(&leaf.key) {
                         leafs.push(leaf);
@@ -137,13 +148,14 @@ where
     }
 }
 
-impl<'a, K: 'a + Key + Ord, V, R: RangeBounds<K>> DoubleEndedIterator for Scanner<'a, K, V, R> {
+impl<'a, K: Key + Ord, V, R: RangeBounds<K>> DoubleEndedIterator for Scanner<'a, K, V, R> {
     fn next_back(&mut self) -> Option<Self::Item> {
         'outer: while let Some(node) = self.backward.interims.last_mut() {
             let mut e = node.next_back();
             loop {
                 match e {
-                    Some(TypedNode::Leaf(leaf)) => {
+                    Some(Tree::Empty) => break,
+                    Some(Tree::Leaf(leaf)) => {
                         if self.range.contains(&leaf.key) {
                             self.backward.leafs.push(leaf);
                             break 'outer;
@@ -160,11 +172,11 @@ impl<'a, K: 'a + Key + Ord, V, R: RangeBounds<K>> DoubleEndedIterator for Scanne
                         }
                         break;
                     }
-                    Some(TypedNode::Interim(interim)) => {
-                        self.backward.interims.push(interim.iter());
+                    Some(Tree::BoxedNode(boxed_node)) => {
+                        self.backward.interims.push(boxed_node.iter());
                         break;
                     }
-                    Some(TypedNode::Combined(interim, leaf)) => {
+                    Some(Tree::Combined(interim, leaf)) => {
                         if self.range.contains(&leaf.key) {
                             self.backward.leafs.push(leaf);
                         }
@@ -186,7 +198,7 @@ impl<'a, K: 'a + Key + Ord, V, R: RangeBounds<K>> DoubleEndedIterator for Scanne
                 .zip(self.last_forward_key)
                 .map_or(true, |(k1, k2)| k1 > k2)
             {
-                Some((&leaf.key, &leaf.value))
+                Some((&leaf.key, &leaf.val))
             } else {
                 self.backward.interims.clear();
                 self.backward.leafs.clear();
@@ -204,7 +216,8 @@ impl<'a, K: 'a + Key + Ord, V, R: RangeBounds<K>> Iterator for Scanner<'a, K, V,
             let mut e = node.next();
             loop {
                 match e {
-                    Some(TypedNode::Leaf(leaf)) => {
+                    Some(Tree::Empty) => break,
+                    Some(Tree::Leaf(leaf)) => {
                         if self.range.contains(&leaf.key) {
                             self.forward.leafs.push_back(leaf);
                             break 'outer;
@@ -222,11 +235,11 @@ impl<'a, K: 'a + Key + Ord, V, R: RangeBounds<K>> Iterator for Scanner<'a, K, V,
 
                         break;
                     }
-                    Some(TypedNode::Interim(interim)) => {
-                        self.forward.interims.push(interim.iter());
+                    Some(Tree::BoxedNode(boxed_node)) => {
+                        self.forward.interims.push(boxed_node.iter());
                         break;
                     }
-                    Some(TypedNode::Combined(interim, leaf)) => {
+                    Some(Tree::Combined(interim, leaf)) => {
                         if self.range.contains(&leaf.key) {
                             self.forward.leafs.push_back(leaf);
                             // next interim can be combined node
@@ -259,7 +272,7 @@ impl<'a, K: 'a + Key + Ord, V, R: RangeBounds<K>> Iterator for Scanner<'a, K, V,
                 .zip(self.last_backward_key)
                 .map_or(true, |(k1, k2)| k1 < k2)
             {
-                Some((&leaf.key, &leaf.value))
+                Some((&leaf.key, &leaf.val))
             } else {
                 self.forward.interims.clear();
                 self.forward.leafs.clear();
@@ -271,19 +284,28 @@ impl<'a, K: 'a + Key + Ord, V, R: RangeBounds<K>> Iterator for Scanner<'a, K, V,
 
 #[cfg(test)]
 mod tests {
-    use crate::keys::ByteString;
-    use crate::{Art, Float32, Float64, KeyBuilder};
+    use crate::{Art, Float32, Float64, Key};
     use rand::prelude::SliceRandom;
     use rand::{thread_rng, Rng};
     use std::cmp;
     use std::collections::HashSet;
+
+    fn compound_key<A: Key, B: Key>(a: A, b: B) -> Vec<u8> {
+        let mut key = vec_key(a);
+        key.extend(b.to_bytes().as_slice());
+        key
+    }
+
+    fn vec_key<K: Key>(k: K) -> Vec<u8> {
+        k.to_bytes().as_slice().to_vec()
+    }
 
     #[test]
     fn combined_keys() {
         let mut art = Art::new();
         for i in 0..=u8::MAX {
             for j in i8::MIN..=i8::MAX {
-                let key = KeyBuilder::new().append(i).append(j).build();
+                let key = compound_key(i, j);
                 assert!(art.insert(key, i.to_string()), "{}", i);
             }
         }
@@ -291,7 +313,7 @@ mod tests {
         let mut it = art.iter();
         for i in 0..=u8::MAX {
             for j in i8::MIN..=i8::MAX {
-                let key = KeyBuilder::new().append(i).append(j).build();
+                let key = compound_key(i, j);
                 assert!(matches!(it.next(), Some((k, val)) if &key == k && val == &i.to_string()));
             }
         }
@@ -457,36 +479,37 @@ mod tests {
 
     #[test]
     fn iter_with_long_prefix() {
-        let mut art = Art::new();
-        let mut existing = HashSet::new();
+        let mut art: Art<Vec<u8>, Vec<u8>> = Art::new();
+        let mut existing: HashSet<Vec<u8>> = HashSet::new();
         long_prefix_test(&mut art, |art, key| {
+            let vk = vec_key(key.clone());
             assert!(
-                art.insert(ByteString::new(key.as_bytes()), key.clone()),
-                "{} already exists",
+                art.insert(vk.clone(), key.clone()),
+                "{:?} already exists",
                 key
             );
-            existing.insert(key);
+            existing.insert(vk);
         });
 
-        let mut sorted: Vec<String> = existing.iter().cloned().collect();
+        let mut sorted: Vec<Vec<u8>> = existing.iter().cloned().collect();
         sorted.sort();
         assert_eq!(
             sorted,
-            art.iter().map(|(_, v)| v.clone()).collect::<Vec<String>>()
+            art.iter().map(|(_, v)| v.clone()).collect::<Vec<Vec<u8>>>()
         );
 
         sorted
             .choose_multiple(&mut thread_rng(), sorted.len() / 4)
             .for_each(|key| {
-                art.remove(&ByteString::new(key.as_bytes()));
+                art.remove(&key);
                 existing.remove(key);
             });
 
-        let mut sorted: Vec<String> = existing.iter().cloned().collect();
+        let mut sorted: Vec<Vec<u8>> = existing.iter().cloned().collect();
         sorted.sort();
         assert_eq!(
             sorted,
-            art.iter().map(|(_, v)| v.clone()).collect::<Vec<String>>()
+            art.iter().map(|(_, v)| v.clone()).collect::<Vec<Vec<u8>>>()
         );
     }
 
@@ -494,10 +517,11 @@ mod tests {
     fn range_scan_with_long_prefix() {
         let mut art = Art::new();
         long_prefix_test(&mut art, |art, key| {
-            art.insert(ByteString::new(key.as_bytes()), key.clone());
+            let vk = vec_key(key.clone());
+            art.insert(vk, key);
         });
 
-        let keys: Vec<ByteString> = art.iter().map(|(k, _)| k.clone()).collect();
+        let keys: Vec<Vec<u8>> = art.iter().map(|(k, _)| k.clone()).collect();
         for _ in 0..500 {
             let bound1 = keys.choose(&mut thread_rng()).unwrap();
             let bound2 = keys.choose(&mut thread_rng()).unwrap();
@@ -529,9 +553,10 @@ mod tests {
     fn double_ended_iter() {
         let mut art = Art::new();
         let mut existing = HashSet::new();
-        long_prefix_test(&mut art, |art, key| {
-            art.insert(ByteString::new(key.as_bytes()), key.clone());
-            existing.insert(key);
+        long_prefix_test(&mut art, |art, k| {
+            let key = vec_key(k.clone());
+            art.insert(key, k.clone());
+            existing.insert(k);
         });
 
         let mut iter = art.iter().peekable();
@@ -539,17 +564,19 @@ mod tests {
         let mut bwd = Vec::new();
         while iter.peek().is_some() {
             if thread_rng().gen_bool(0.5) {
-                (0..thread_rng().gen_range(1..25)).for_each(|_| {
+                let hi: usize = thread_rng().gen_range(1..25);
+                (0..hi).for_each(|_| {
                     iter.next().map(|(_, v)| fwd.push(v.clone()));
                 });
             } else {
-                (0..thread_rng().gen_range(1..25)).for_each(|_| {
+                let hi: usize = thread_rng().gen_range(1..25);
+                (0..hi).for_each(|_| {
                     iter.next_back().map(|(_, v)| bwd.push(v.clone()));
                 });
             }
         }
 
-        let mut expected: Vec<String> = existing.iter().cloned().collect();
+        let mut expected: Vec<Vec<u8>> = existing.iter().cloned().collect();
         expected.sort();
         bwd.reverse();
         fwd.append(&mut bwd);
@@ -584,24 +611,28 @@ mod tests {
         }
     }
 
-    fn long_prefix_test<F: FnMut(&mut Art<ByteString, String>, String)>(
-        art: &mut Art<ByteString, String>,
+    fn long_prefix_test<F: FnMut(&mut Art<Vec<u8>, Vec<u8>>, Vec<u8>)>(
+        art: &mut Art<Vec<u8>, Vec<u8>>,
         mut test_fn: F,
     ) {
         let mut existing = HashSet::new();
-        let mut chars: Vec<char> = ('a'..='z').collect();
+        let mut chars: Vec<u8> = (0..255).collect();
         chars.shuffle(&mut thread_rng());
         let chars = &chars[..thread_rng().gen_range(1..chars.len())];
         for i in 0..chars.len() {
-            let level1_prefix = chars[i].to_string().repeat(thread_rng().gen_range(1..8));
+            let rep1: usize = thread_rng().gen_range(1..8);
+            let mut prefix = chars[i].to_bytes().as_slice().repeat(rep1);
             for i in 0..chars.len() {
-                let level2_prefix = chars[i].to_string().repeat(thread_rng().gen_range(1..8));
-                let key_prefix = level1_prefix.clone() + &level2_prefix;
+                let rep2: usize = thread_rng().gen_range(1..8);
+                let level2_prefix = chars[i].to_bytes().as_slice().repeat(rep2);
+                prefix.extend(level2_prefix);
                 for _ in 0..=u8::MAX {
-                    let suffix: String = (0..thread_rng().gen_range(0..8))
+                    let hi: usize = thread_rng().gen_range(0..8);
+                    let suffix: Vec<u8> = (0..hi)
                         .map(|_| chars[thread_rng().gen_range(0..chars.len())])
                         .collect();
-                    let string = key_prefix.clone() + &suffix;
+                    let mut string: Vec<u8> = prefix.clone();
+                    string.extend(&suffix[..]);
                     if !existing.insert(string.clone()) {
                         continue;
                     }
