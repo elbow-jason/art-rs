@@ -1,6 +1,6 @@
 use paste::paste;
 use std::cmp::Ordering;
-use std::mem;
+use std::{fmt, mem};
 
 macro_rules! build_key_buffer {
     ([ $( $n:literal ),* ]) => {
@@ -116,7 +116,7 @@ impl Key for &str {
 /// Trait represent [Art](crate::Art) key.
 /// Trait define method which convert key into byte comparable sequence. This sequence will be
 /// used to order keys inside tree.
-pub trait Key: Clone {
+pub trait Key: Clone + fmt::Debug {
     // type Bytes: AsRef<[u8]>;
     /// Converts key to byte comparable sequence. This sequence used to represent key inside
     /// [Art] tree.

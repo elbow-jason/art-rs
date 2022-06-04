@@ -1,6 +1,7 @@
 use crate::node::*;
 use crate::{Key, Leaf, Tree};
 use std::collections::{BinaryHeap, VecDeque};
+use std::fmt;
 use std::ops::{Bound, RangeBounds};
 
 // pub struct Scanner2<'a, K, V>
@@ -13,7 +14,7 @@ use std::ops::{Bound, RangeBounds};
 //     iters: Vec<NodeIter<'a, Tree<K, V>>>,
 // }
 
-pub struct Scanner<'a, K, V, R> {
+pub struct Scanner<'a, K: Key, V: Clone + fmt::Debug, R> {
     forward: ScannerState<'a, K, V>,
     last_forward_key: Option<&'a K>,
     backward: BackwardScannerState<'a, K, V>,
@@ -21,12 +22,12 @@ pub struct Scanner<'a, K, V, R> {
     range: R,
 }
 
-struct ScannerState<'a, K, V> {
+struct ScannerState<'a, K: Key, V: Clone + fmt::Debug> {
     interims: Vec<NodeIter<'a, Tree<K, V>>>,
     leafs: VecDeque<&'a Leaf<K, V>>,
 }
 
-struct BackwardScannerState<'a, K, V> {
+struct BackwardScannerState<'a, K: Key, V: Clone + fmt::Debug> {
     interims: Vec<NodeIter<'a, Tree<K, V>>>,
     leafs: BinaryHeap<&'a Leaf<K, V>>,
 }
@@ -34,6 +35,7 @@ struct BackwardScannerState<'a, K, V> {
 impl<'a, K, V, R> Scanner<'a, K, V, R>
 where
     K: Key + Ord,
+    V: Clone + fmt::Debug,
     R: RangeBounds<K>,
 {
     pub(crate) fn empty(range: R) -> Self {
@@ -62,7 +64,8 @@ where
 
 impl<'a, K, V> ScannerState<'a, K, V>
 where
-    K: Ord,
+    K: Ord + Key,
+    V: Clone + fmt::Debug,
 {
     pub(crate) fn empty() -> Self {
         Self {
@@ -106,7 +109,8 @@ where
 
 impl<'a, K, V> BackwardScannerState<'a, K, V>
 where
-    K: Ord,
+    K: Key + Ord,
+    V: Clone + fmt::Debug,
 {
     pub(crate) fn empty() -> Self {
         Self {
@@ -148,7 +152,12 @@ where
     }
 }
 
-impl<'a, K: Key + Ord, V, R: RangeBounds<K>> DoubleEndedIterator for Scanner<'a, K, V, R> {
+impl<'a, K, V, R> DoubleEndedIterator for Scanner<'a, K, V, R>
+where
+    K: Key + Ord,
+    V: Clone + fmt::Debug,
+    R: RangeBounds<K>,
+{
     fn next_back(&mut self) -> Option<Self::Item> {
         'outer: while let Some(node) = self.backward.interims.last_mut() {
             let mut e = node.next_back();
@@ -208,7 +217,12 @@ impl<'a, K: Key + Ord, V, R: RangeBounds<K>> DoubleEndedIterator for Scanner<'a,
     }
 }
 
-impl<'a, K: 'a + Key + Ord, V, R: RangeBounds<K>> Iterator for Scanner<'a, K, V, R> {
+impl<'a, K, V, R> Iterator for Scanner<'a, K, V, R>
+where
+    K: 'a + Key + Ord,
+    V: Clone + fmt::Debug,
+    R: RangeBounds<K>,
+{
     type Item = (&'a K, &'a V);
 
     fn next(&mut self) -> Option<Self::Item> {

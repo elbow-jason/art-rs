@@ -10,13 +10,13 @@ pub use tree::Tree;
 use crate::node::*;
 use crate::Key;
 
-use std::ptr;
+use std::{fmt, ptr};
 
-pub struct TreeNode<K: Key, V> {
+pub struct TreeNode<K: Key, V: Clone + fmt::Debug> {
     pub tree: Tree<K, V>,
 }
 
-impl<K: Key, V> TreeNode<K, V> {
+impl<K: Key, V: Clone + fmt::Debug> TreeNode<K, V> {
     pub(crate) fn interim_insert<'a>(
         &'a mut self,
         key: K,
@@ -204,7 +204,7 @@ impl<K: Key, V> TreeNode<K, V> {
     }
 }
 
-pub(crate) struct InsertOp<'n, K, V> {
+pub(crate) struct InsertOp<'n, K: Key, V: Clone + fmt::Debug> {
     node: &'n mut Tree<K, V>,
     // offset of byte in key which should be used to insert KV pair inside `node`
     key_byte_offset: usize,

@@ -1,6 +1,7 @@
 use super::{InsertStatus, Node48, NodeOps};
 use std::mem;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FlatNode<V, const N: usize> {
     pub(crate) prefix: Vec<u8>,
     pub(crate) len: usize,

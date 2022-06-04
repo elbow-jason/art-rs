@@ -1,5 +1,6 @@
 use super::{InsertStatus, Node48, NodeOps};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Node256<V> {
     pub(crate) prefix: Vec<u8>,
     pub(crate) len: usize,

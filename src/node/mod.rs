@@ -49,6 +49,7 @@ impl<'a, V> Iterator for NodeIter<'a, V> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BoxedNode<V> {
     Size4(Box<FlatNode<V, 4>>),
     Size16(Box<FlatNode<V, 16>>),

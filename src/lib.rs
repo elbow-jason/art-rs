@@ -43,7 +43,7 @@ use scanner::Scanner;
 use std::cmp::Ordering;
 use std::ops::RangeBounds;
 use std::option::Option::Some;
-use std::{mem, ptr};
+use std::{fmt, mem, ptr};
 
 /// Adaptive Radix Tree.  
 ///
@@ -57,20 +57,22 @@ use std::{mem, ptr};
 /// - usize
 /// - floating point numbers f32 and f64
 /// - floating point numbers through [Float32]/[Float64] types
+#[derive(Clone)]
 pub struct Art<K, V>
 where
     K: Key,
+    V: Clone + fmt::Debug,
 {
     root: Tree<K, V>,
 }
 
-impl<K: Key, V> Default for Art<K, V> {
+impl<K: Key, V: Clone + fmt::Debug> Default for Art<K, V> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'a, K: Key, V> Art<K, V> {
+impl<'a, K: Key, V: Clone + fmt::Debug> Art<K, V> {
     /// Create empty [ART] tree.
     pub fn new() -> Self {
         Self { root: Tree::Empty }
@@ -525,7 +527,7 @@ fn common_prefix_len(k1: &[u8], k2: &[u8]) -> usize {
     len
 }
 
-struct InsertOp<'n, K, V> {
+struct InsertOp<'n, K: Key, V: Clone + fmt::Debug> {
     node: &'n mut Tree<K, V>,
     // offset of byte in key which should be used to insert KV pair inside `node`
     key_byte_offset: usize,
