@@ -82,6 +82,10 @@ impl<'a, K: Key, V: Clone + fmt::Debug> Art<K, V> {
         self.root.size()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.root.is_empty()
+    }
+
     /// Insert key-value pair into tree.  
     /// Return `true` if key-value successfully inserted into tree, otherwise `false` if tree
     /// already contains same key.
