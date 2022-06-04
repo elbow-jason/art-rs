@@ -93,6 +93,10 @@ impl<V> NodeOps<V> for Node48<V> {
 }
 
 impl<V> Node48<V> {
+    pub fn size(&self) -> usize {
+        self.len
+    }
+
     pub(crate) fn new(prefix: &[u8]) -> Self {
         Self {
             prefix: prefix.to_vec(),

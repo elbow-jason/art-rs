@@ -78,6 +78,10 @@ impl<'a, K: Key, V: Clone + fmt::Debug> Art<K, V> {
         Self { root: Tree::Empty }
     }
 
+    pub fn size(&self) -> usize {
+        self.root.size()
+    }
+
     /// Insert key-value pair into tree.  
     /// Return `true` if key-value successfully inserted into tree, otherwise `false` if tree
     /// already contains same key.

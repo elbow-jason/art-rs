@@ -58,6 +58,15 @@ pub enum BoxedNode<V> {
 }
 
 impl<V> BoxedNode<V> {
+    pub fn size(&self) -> usize {
+        match self {
+            BoxedNode::Size4(n) => n.size(),
+            BoxedNode::Size16(n) => n.size(),
+            BoxedNode::Size48(n) => n.size(),
+            BoxedNode::Size256(n) => n.size(),
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn node_size(&self) -> usize {
         match self {

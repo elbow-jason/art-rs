@@ -45,6 +45,14 @@ impl<K: Key, V: Clone + fmt::Debug> Default for Tree<K, V> {
 }
 
 impl<K: Key, V: Clone + fmt::Debug> Tree<K, V> {
+    pub fn size(&self) -> usize {
+        match self {
+            Tree::Empty => 0,
+            Tree::Leaf(_) => 1,
+            Tree::BoxedNode(bn) => bn.size(),
+            Tree::Combined(tree, _) => tree.size() + 1,
+        }
+    }
     pub fn is_empty(&self) -> bool {
         match self {
             Tree::Empty => true,

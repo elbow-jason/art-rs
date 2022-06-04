@@ -24,6 +24,10 @@ pub struct FlatNode<V, const N: usize> {
 // }
 
 impl<V, const N: usize> FlatNode<V, N> {
+    pub fn size(&self) -> usize {
+        self.len
+    }
+
     fn remove_index(&mut self, i: usize) -> V {
         let val = mem::replace(&mut self.values[i], None).unwrap();
         self.keys[i] = self.keys[self.len - 1];
