@@ -38,7 +38,7 @@ mod tree;
 use tree::{Leaf, Tree};
 
 mod scanner;
-use scanner::Scanner;
+pub use scanner::Scanner;
 
 use std::cmp::Ordering;
 use std::ops::RangeBounds;

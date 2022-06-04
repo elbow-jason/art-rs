@@ -4,16 +4,6 @@ use std::collections::{BinaryHeap, VecDeque};
 use std::fmt;
 use std::ops::{Bound, RangeBounds};
 
-// pub struct Scanner2<'a, K, V>
-// where
-//     K: Key + Ord,
-// {
-//     lo_key: Vec<u8>,
-//     hi_key: Vec<u8>,
-//     key: Vec<u8>,
-//     iters: Vec<NodeIter<'a, Tree<K, V>>>,
-// }
-
 pub struct Scanner<'a, K: Key, V: Clone + fmt::Debug, R> {
     forward: ScannerState<'a, K, V>,
     last_forward_key: Option<&'a K>,
